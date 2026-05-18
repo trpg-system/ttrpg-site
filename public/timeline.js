@@ -54,9 +54,9 @@ function renderEntriesHtml(entries, label) {
     <div class="entry-view">
       <div class="entry-view-top">
         <span class="entry-view-label">${escHtml(label)}</span>
-        <span class="entry-view-name">${escHtml(e.name)}</span>
+        <span class="entry-view-name">${renderContent(e.name)}</span>
       </div>
-      ${e.desc ? `<div class="entry-view-desc">${escHtml(e.desc)}</div>` : ''}
+      ${e.desc ? `<div class="entry-view-desc">${renderContent(e.desc)}</div>` : ''}
     </div>`).join('');
 }
 
@@ -100,6 +100,15 @@ function buildHandoutItem(h) {
   const previewEl = block.querySelector('.handout-block-preview');
   previewEl.innerHTML = renderContent(h.content);
 
+  // 펼쳤을 때 보이는 NPC / 아이템 정보
+  const npcEntries  = parseEntries(h.npc);
+  const itemEntries = parseEntries(h.item);
+  const expandInfo = document.createElement('div');
+  expandInfo.className = 'handout-block-expand-info';
+  expandInfo.hidden = true;
+  expandInfo.innerHTML = renderEntriesHtml(npcEntries, 'NPC') + renderEntriesHtml(itemEntries, '아이템');
+  block.querySelector('.handout-block-body').appendChild(expandInfo);
+
   // 추리 버튼 초기 카운트
   updateDeductionBtn(h.id, block);
 
@@ -108,6 +117,7 @@ function buildHandoutItem(h) {
   expandBtn.addEventListener('click', e => {
     e.stopPropagation();
     const expanded = previewEl.classList.toggle('expanded');
+    expandInfo.hidden = !expanded;
     expandBtn.textContent = expanded ? '▲ 접기' : '▼ 펼치기';
   });
 
@@ -588,6 +598,10 @@ function renderHandout(h) {
     if (itemEl) {
       itemEl.querySelector('.handout-block-title').textContent = updated.title;
       itemEl.querySelector('.handout-block-preview').innerHTML = renderContent(updated.content);
+      const expandInfoEl = itemEl.querySelector('.handout-block-expand-info');
+      if (expandInfoEl)
+        expandInfoEl.innerHTML =
+          renderEntriesHtml(newNpc, 'NPC') + renderEntriesHtml(newItem, '아이템');
     }
 
     showStatus('statusAll');
@@ -643,8 +657,13 @@ function addEntryRow(containerEl, name = '', desc = '') {
       <input type="text" class="entry-name" placeholder="이름" value="${escHtml(name)}">
       <button type="button" class="btn-remove-entry" title="삭제">✕</button>
     </div>
+    <div class="content-toolbar" style="margin-bottom:0.25rem">
+      <button type="button" class="btn-toolbar btn-bold-desc"><b>B</b> 볼드</button>
+    </div>
     <textarea class="entry-desc" placeholder="설명">${escHtml(desc)}</textarea>
   `;
+  const ta = row.querySelector('.entry-desc');
+  row.querySelector('.btn-bold-desc').addEventListener('click', () => applyBold(ta));
   row.querySelector('.btn-remove-entry').addEventListener('click', () => row.remove());
   containerEl.appendChild(row);
 }
@@ -665,27 +684,29 @@ function bindAddEntryButtons() {
   });
 }
 
-// ── 볼드 버튼 ────────────────────────────────────
+// ── 볼드 공용 함수 ───────────────────────────────
+function applyBold(ta) {
+  const start = ta.selectionStart;
+  const end   = ta.selectionEnd;
+  if (start === end) {
+    const ph = '굵은 텍스트';
+    ta.value = ta.value.slice(0, start) + `**${ph}**` + ta.value.slice(end);
+    ta.selectionStart = start + 2;
+    ta.selectionEnd   = start + 2 + ph.length;
+  } else {
+    const sel = ta.value.slice(start, end);
+    const rep = `**${sel}**`;
+    ta.value = ta.value.slice(0, start) + rep + ta.value.slice(end);
+    ta.selectionStart = start;
+    ta.selectionEnd   = start + rep.length;
+  }
+  ta.focus();
+}
 function bindBoldButtons() {
   modalContent.querySelectorAll('.btn-bold').forEach(btn => {
     btn.addEventListener('click', () => {
       const ta = document.getElementById(btn.dataset.target);
-      if (!ta) return;
-      const start = ta.selectionStart;
-      const end   = ta.selectionEnd;
-      if (start === end) {
-        const ph = '굵은 텍스트';
-        ta.value = ta.value.slice(0, start) + `**${ph}**` + ta.value.slice(end);
-        ta.selectionStart = start + 2;
-        ta.selectionEnd   = start + 2 + ph.length;
-      } else {
-        const sel = ta.value.slice(start, end);
-        const rep = `**${sel}**`;
-        ta.value = ta.value.slice(0, start) + rep + ta.value.slice(end);
-        ta.selectionStart = start;
-        ta.selectionEnd   = start + rep.length;
-      }
-      ta.focus();
+      if (ta) applyBold(ta);
     });
   });
 }

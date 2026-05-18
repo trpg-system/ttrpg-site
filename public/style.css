@@ -20,7 +20,24 @@ body {
   color: var(--text);
   font-family: 'Noto Sans KR', sans-serif;
   min-height: 100vh;
+  text-align: justify;
+  word-break: keep-all;
 }
+
+/* 양쪽 맞춤 예외: 버튼·입력·제목 등 */
+button, input, select, textarea,
+h1, h2, h3, h4,
+.handout-block-title,
+.handout-section-title,
+.handout-block-meta,
+.tab-btn,
+.tab-empty,
+.comment-nickname,
+.comment-time,
+.entry-view-label,
+.entry-view-name,
+.save-status,
+.modal-header-title { text-align: left; }
 
 /* ── 헤더 ── */
 .site-header {
@@ -376,6 +393,14 @@ body {
   display: block;
   overflow: visible;
   -webkit-line-clamp: unset;
+}
+.handout-block-expand-info {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 .handout-block-meta {
   font-size: 0.75rem;
