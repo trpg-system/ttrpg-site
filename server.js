@@ -59,11 +59,13 @@ async function initDB() {
       acquired_location  TEXT    DEFAULT '',
       player_summary     TEXT    DEFAULT '',
       player_deductions  JSONB   DEFAULT '[]'::jsonb,
-      sort_order         INTEGER DEFAULT 0
+      sort_order         INTEGER DEFAULT 0,
+      updated_at         TIMESTAMP DEFAULT NOW()
     )
   `);
-  // 기존 테이블에 sort_order 컬럼 없으면 추가
+  // 기존 테이블에 컬럼 없으면 추가
   await pool.query(`ALTER TABLE handouts ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE handouts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 
   // JSON 파일이 있고 DB가 비어있으면 마이그레이션
   const { rows: ec } = await pool.query('SELECT COUNT(*)::int AS c FROM events');
@@ -166,10 +168,12 @@ app.post('/api/handouts', async (req, res) => {
   const id = 'ho_' + Date.now();
 
   if (USE_DB) {
+    const { rows: maxRow } = await pool.query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM handouts');
+    const nextOrder = maxRow[0].next;
     await pool.query(
-      `INSERT INTO handouts (id,title,content,npc,item,acquired_date,acquired_location)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [id, title, content, npc, item, acquired_date, acquired_location]
+      `INSERT INTO handouts (id,title,content,npc,item,acquired_date,acquired_location,sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [id, title, content, npc, item, acquired_date, acquired_location, nextOrder]
     );
     if (event_id)
       await pool.query('UPDATE events SET handout_id=$1 WHERE id=$2', [id, event_id]);
@@ -196,6 +200,7 @@ app.patch('/api/handouts/:id', async (req, res) => {
     const sets = []; const vals = []; let i = 1;
     EDITABLE.forEach(k => { if (req.body[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(req.body[k]); } });
     if (!sets.length) return res.status(400).json({ error: '수정할 내용 없음' });
+    sets.push(`updated_at = NOW()`);
     vals.push(req.params.id);
     const { rows } = await pool.query(`UPDATE handouts SET ${sets.join(',')} WHERE id=$${i} RETURNING *`, vals);
     if (!rows.length) return res.status(404).json({ error: '핸드아웃을 찾을 수 없습니다.' });
@@ -205,6 +210,7 @@ app.patch('/api/handouts/:id', async (req, res) => {
   const idx = handouts.findIndex(h => h.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: '핸드아웃을 찾을 수 없습니다.' });
   EDITABLE.forEach(k => { if (req.body[k] !== undefined) handouts[idx][k] = req.body[k]; });
+  handouts[idx].updated_at = new Date().toISOString();
   writeJSON('handouts.json', handouts);
   res.json(handouts[idx]);
 });

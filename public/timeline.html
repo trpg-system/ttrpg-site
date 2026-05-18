@@ -18,7 +18,14 @@
   <section class="handout-section">
     <div class="handout-section-header">
       <h2 class="handout-section-title">📄 핸드아웃</h2>
-      <button class="btn-new-handout" id="btnNewHandout">＋ 새 핸드아웃</button>
+      <div class="handout-header-right">
+        <div class="sort-btns">
+          <button class="btn-sort" data-sort="custom">순서</button>
+          <button class="btn-sort" data-sort="created">생성 순</button>
+          <button class="btn-sort" data-sort="updated">수정 순</button>
+        </div>
+        <button class="btn-new-handout" id="btnNewHandout">＋ 새 핸드아웃</button>
+      </div>
     </div>
     <div class="handout-grid" id="handoutGrid">
       <div class="loading">불러오는 중...</div>

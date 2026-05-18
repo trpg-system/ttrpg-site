@@ -3,6 +3,7 @@ let handoutOrder  = [];
 let dragSrcId     = null;
 let savedNickname = '';
 const handoutCache = {};
+let currentSort   = localStorage.getItem('handoutSort') || 'custom';
 
 // ── DOM ──────────────────────────────────────────
 const overlay      = document.getElementById('modalOverlay');
@@ -25,13 +26,34 @@ async function loadHandoutSection() {
 
 function renderHandoutGrid(handouts) {
   handoutOrder = handouts.map(h => h.id);
+  handouts.forEach(h => { handoutCache[h.id] = h; });
+  renderSortedGrid();
+}
+
+function getSortedHandouts() {
+  const list = handoutOrder.map(id => handoutCache[id]).filter(Boolean);
+  if (currentSort === 'created') {
+    return [...list].sort((a, b) => b.id.localeCompare(a.id));
+  }
+  if (currentSort === 'updated') {
+    return [...list].sort((a, b) => {
+      const ta = a.updated_at || '';
+      const tb = b.updated_at || '';
+      return tb.localeCompare(ta) || b.id.localeCompare(a.id);
+    });
+  }
+  return list; // custom (드래그) 순서
+}
+
+function renderSortedGrid() {
   const grid = document.getElementById('handoutGrid');
-  if (!handouts.length) {
+  const sorted = getSortedHandouts();
+  if (!sorted.length) {
     grid.innerHTML = '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
     return;
   }
   grid.innerHTML = '';
-  handouts.forEach(h => grid.appendChild(buildHandoutItem(h)));
+  sorted.forEach(h => grid.appendChild(buildHandoutItem(h)));
 }
 
 // ── NPC / 아이템 헬퍼 ───────────────────────────
@@ -549,9 +571,12 @@ function renderHandout(h) {
       acquired_date:     document.getElementById('eAcqDate').value,
       acquired_location: document.getElementById('eAcqLoc').value,
     };
-    await patchHandout(h.id, updated);
+    const savedH = await patchHandout(h.id, updated);
     Object.assign(h, updated);
-    if (handoutCache[h.id]) Object.assign(handoutCache[h.id], updated);
+    if (handoutCache[h.id]) {
+      Object.assign(handoutCache[h.id], updated);
+      if (savedH?.updated_at) handoutCache[h.id].updated_at = savedH.updated_at;
+    }
 
     const newNpc  = parseEntries(updated.npc);
     const newItem = parseEntries(updated.item);
@@ -570,6 +595,27 @@ function renderHandout(h) {
     if (itemEl) {
       itemEl.querySelector('.handout-block-title').textContent = updated.title;
       itemEl.querySelector('.handout-block-preview').innerHTML = renderContent(updated.content);
+
+      // 날짜/위치 메타 갱신
+      const newAcqMeta = [
+        updated.acquired_date     ? `📅 ${updated.acquired_date}`     : '',
+        updated.acquired_location ? `📍 ${updated.acquired_location}` : '',
+      ].filter(Boolean).join('  ');
+      const metaEl = itemEl.querySelector('.handout-block-meta');
+      if (newAcqMeta) {
+        if (metaEl) {
+          metaEl.textContent = newAcqMeta;
+        } else {
+          const newMetaEl = document.createElement('div');
+          newMetaEl.className = 'handout-block-meta';
+          newMetaEl.textContent = newAcqMeta;
+          const contentEl = itemEl.querySelector('.handout-block-content');
+          contentEl.insertBefore(newMetaEl, contentEl.querySelector('.handout-block-expand-info'));
+        }
+      } else if (metaEl) {
+        metaEl.remove();
+      }
+
       const expandInfoEl = itemEl.querySelector('.handout-block-expand-info');
       if (expandInfoEl)
         expandInfoEl.innerHTML =
@@ -688,10 +734,11 @@ overlay.addEventListener('click', e => { if (e.target === overlay) closeModal();
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 async function patchHandout(id, data) {
-  await fetch(`/api/handouts/${id}`, {
+  const r = await fetch(`/api/handouts/${id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
+  return r.ok ? r.json() : null;
 }
 function showStatus(id) {
   const el = document.getElementById(id);
@@ -711,4 +758,17 @@ function formatTime(iso) {
 }
 
 document.getElementById('btnNewHandout').addEventListener('click', openCreateHandout);
+
+// 정렬 버튼 초기화
+document.querySelectorAll('.btn-sort').forEach(btn => {
+  if (btn.dataset.sort === currentSort) btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    currentSort = btn.dataset.sort;
+    localStorage.setItem('handoutSort', currentSort);
+    document.querySelectorAll('.btn-sort').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderSortedGrid();
+  });
+});
+
 loadHandoutSection();
