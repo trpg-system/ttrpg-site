@@ -83,18 +83,20 @@ function buildHandoutItem(h) {
   const block = document.createElement('div');
   block.className = 'handout-block';
   block.innerHTML = `
-    <div class="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
-    <div class="handout-block-icon">📄</div>
-    <div class="handout-block-body">
+    <div class="handout-block-top">
+      <div class="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
+      <div class="handout-block-icon">📄</div>
       <div class="handout-block-title">${escHtml(h.title)}</div>
+      <div class="handout-block-actions">
+        <button class="btn-block-action btn-block-expand">▼ 펼치기</button>
+        <button class="btn-block-action btn-block-view">보기</button>
+        <button class="btn-block-action btn-toggle-deduction">💬 추리</button>
+        <button class="btn-block-action btn-block-delete">🗑</button>
+      </div>
+    </div>
+    <div class="handout-block-content">
       <div class="handout-block-preview"></div>
       ${acqMeta ? `<div class="handout-block-meta">${escHtml(acqMeta)}</div>` : ''}
-    </div>
-    <div class="handout-block-actions">
-      <button class="btn-block-action btn-block-expand">▼ 펼치기</button>
-      <button class="btn-block-action btn-block-view">보기</button>
-      <button class="btn-block-action btn-toggle-deduction">💬 추리</button>
-      <button class="btn-block-action btn-block-delete">🗑</button>
     </div>
   `;
   const previewEl = block.querySelector('.handout-block-preview');
@@ -107,7 +109,7 @@ function buildHandoutItem(h) {
   expandInfo.className = 'handout-block-expand-info';
   expandInfo.hidden = true;
   expandInfo.innerHTML = renderEntriesHtml(npcEntries, 'NPC') + renderEntriesHtml(itemEntries, '아이템');
-  block.querySelector('.handout-block-body').appendChild(expandInfo);
+  block.querySelector('.handout-block-content').appendChild(expandInfo);
 
   // 추리 버튼 초기 카운트
   updateDeductionBtn(h.id, block);
