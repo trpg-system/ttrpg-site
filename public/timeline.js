@@ -1,27 +1,15 @@
 // ── 상태 ─────────────────────────────────────────
-let allEvents     = [];
+let handoutOrder  = [];
 let dragSrcId     = null;
 let savedNickname = '';
 const handoutCache = {};
 
 // ── DOM ──────────────────────────────────────────
-const timelineEl   = document.getElementById('timeline');
 const overlay      = document.getElementById('modalOverlay');
 const modalContent = document.getElementById('modalContent');
 const modalClose   = document.getElementById('modalClose');
 
-// ── 초기 로드 ────────────────────────────────────
-async function loadTimeline() {
-  try {
-    const res = await fetch('/api/events');
-    if (!res.ok) throw new Error();
-    allEvents = await res.json();
-    renderTimeline();
-  } catch {
-    timelineEl.innerHTML = '<div class="error">타임라인을 불러오지 못했습니다.</div>';
-  }
-}
-
+// ── 핸드아웃 섹션 로드 ───────────────────────────
 async function loadHandoutSection() {
   try {
     const r = await fetch('/api/handouts');
@@ -30,11 +18,13 @@ async function loadHandoutSection() {
     handouts.forEach(h => { handoutCache[h.id] = h; });
     renderHandoutGrid(handouts);
   } catch (e) {
-    document.getElementById('handoutGrid').innerHTML = `<div class="error">불러오기 실패: ${e.message}</div>`;
+    document.getElementById('handoutGrid').innerHTML =
+      `<div class="error">불러오기 실패: ${e.message}</div>`;
   }
 }
 
 function renderHandoutGrid(handouts) {
+  handoutOrder = handouts.map(h => h.id);
   const grid = document.getElementById('handoutGrid');
   if (!handouts.length) {
     grid.innerHTML = '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
@@ -55,10 +45,11 @@ function buildHandoutBlock(h) {
   ].filter(Boolean).join('  ');
 
   block.innerHTML = `
+    <div class="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
     <div class="handout-block-icon">📄</div>
     <div class="handout-block-body">
       <div class="handout-block-title">${escHtml(h.title)}</div>
-      <div class="handout-block-preview">${escHtml(h.content)}</div>
+      <div class="handout-block-preview"></div>
       ${acqMeta ? `<div class="handout-block-meta">${escHtml(acqMeta)}</div>` : ''}
     </div>
     <div class="handout-block-actions">
@@ -67,16 +58,61 @@ function buildHandoutBlock(h) {
     </div>
   `;
 
+  // 줄바꿈 보존 미리보기 (innerHTML 사용)
+  block.querySelector('.handout-block-preview').innerHTML =
+    escHtml(h.content).replace(/\n/g, '<br>');
+
+  // ── 드래그 & 드롭 ──
+  block.draggable = true;
+
+  block.addEventListener('dragstart', e => {
+    dragSrcId = h.id;
+    block.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', h.id);
+  });
+  block.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (h.id !== dragSrcId) block.classList.add('drag-over');
+  });
+  block.addEventListener('dragleave', e => {
+    if (!block.contains(e.relatedTarget)) block.classList.remove('drag-over');
+  });
+  block.addEventListener('drop', e => {
+    e.preventDefault();
+    block.classList.remove('drag-over');
+    if (!dragSrcId || dragSrcId === h.id) return;
+    const grid = document.getElementById('handoutGrid');
+    const srcBlock = grid.querySelector(`[data-hid="${dragSrcId}"]`);
+    if (!srcBlock) return;
+    const allBlocks = [...grid.querySelectorAll('.handout-block')];
+    const si = allBlocks.indexOf(srcBlock);
+    const ti = allBlocks.indexOf(block);
+    if (si < ti) grid.insertBefore(srcBlock, block.nextSibling);
+    else         grid.insertBefore(srcBlock, block);
+    handoutOrder = [...grid.querySelectorAll('.handout-block')].map(b => b.dataset.hid);
+    dragSrcId = null;
+    fetch('/api/handouts/reorder', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: handoutOrder }),
+    });
+  });
+  block.addEventListener('dragend', () => {
+    dragSrcId = null;
+    document.querySelectorAll('.handout-block')
+      .forEach(b => b.classList.remove('dragging', 'drag-over'));
+  });
+
   block.querySelector('.btn-block-view').addEventListener('click', () => openHandout(h.id));
-  block.querySelector('.btn-block-delete').addEventListener('click', () => confirmDeleteBlock(h.id, block));
+  block.querySelector('.btn-block-delete').addEventListener('click',
+    () => confirmDeleteBlock(h.id, block));
   return block;
 }
 
 function confirmDeleteBlock(handoutId, block) {
-  // 기존 확인창이 있으면 제거
   const existing = block.querySelector('.inline-delete-confirm');
   if (existing) { existing.remove(); return; }
-
   const box = document.createElement('div');
   box.className = 'inline-delete-confirm';
   box.innerHTML = `
@@ -85,13 +121,11 @@ function confirmDeleteBlock(handoutId, block) {
     <button class="btn-cancel">취소</button>
   `;
   block.appendChild(box);
-
   box.querySelector('.btn-cancel').addEventListener('click', () => box.remove());
   box.querySelector('.btn-delete-confirm').addEventListener('click', async () => {
     await fetch(`/api/handouts/${handoutId}`, { method: 'DELETE' });
     delete handoutCache[handoutId];
-    const evt = allEvents.find(e => e.handout_id === handoutId);
-    if (evt) { evt.handout_id = null; renderTimeline(); }
+    handoutOrder = handoutOrder.filter(id => id !== handoutId);
     block.remove();
     if (!document.querySelector('.handout-block')) {
       document.getElementById('handoutGrid').innerHTML =
@@ -100,228 +134,15 @@ function confirmDeleteBlock(handoutId, block) {
   });
 }
 
-// ── 타임라인 렌더 ────────────────────────────────
-function renderTimeline() {
-  timelineEl.innerHTML = '';
-  if (!allEvents.length) {
-    timelineEl.innerHTML = '<div class="loading">등록된 사건이 없습니다.</div>';
-    return;
-  }
-  allEvents.forEach(evt => {
-    const hasHandout = !!evt.handout_id;
-    const item = document.createElement('div');
-    item.className = `timeline-item${hasHandout ? '' : ' no-handout'}`;
-    item.dataset.id = evt.id;
-
-    const card = document.createElement('div');
-    card.className = 'event-card';
-    card.draggable = true;
-
-    const actionsHtml = hasHandout
-      ? `<div class="card-actions">
-           <button class="btn-action btn-open-handout">📄 핸드아웃 보기</button>
-           <button class="btn-action btn-toggle-deduction">💬 추리</button>
-         </div>`
-      : '';
-
-    card.innerHTML = `
-      <div class="event-card-top">
-        <div class="drag-handle" title="드래그하여 순서 변경">⠿</div>
-        <div class="event-body">
-          <div class="event-date">${escHtml(evt.date)}</div>
-          <div class="event-title">${escHtml(evt.title)}</div>
-          <div class="event-summary">${escHtml(evt.summary)}</div>
-          ${actionsHtml}
-        </div>
-      </div>
-    `;
-
-    // 추리 패널
-    const panel = document.createElement('div');
-    panel.className = 'deduction-panel';
-    panel.innerHTML = `
-      <div class="deduction-panel-inner">
-        <div class="deduction-panel-body">
-          <div class="deduction-label">💬 추리</div>
-          <div class="comment-list" id="cl-${escHtml(evt.id)}">
-            <div class="tab-empty">불러오는 중...</div>
-          </div>
-          <div class="comment-form">
-            <div class="comment-form-top">
-              <input class="comment-nickname-input" placeholder="닉네임"
-                     value="${escHtml(savedNickname)}" maxlength="20">
-            </div>
-            <textarea class="comment-text-input"
-                      placeholder="추리한 내용, 단서, 가설 등을 적어보세요."></textarea>
-            <div class="comment-form-bottom">
-              <span class="comment-error">닉네임과 내용을 모두 입력해주세요.</span>
-              <button class="btn-comment-submit">추리 추가</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    item.appendChild(card);
-    if (hasHandout) item.appendChild(panel);
-    timelineEl.appendChild(item);
-
-    // 버튼 바인딩
-    if (hasHandout) {
-      card.querySelector('.btn-open-handout').addEventListener('click', e => {
-        e.stopPropagation();
-        openHandout(evt.handout_id);
-      });
-      const toggleBtn = card.querySelector('.btn-toggle-deduction');
-      toggleBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        const isOpen = panel.classList.contains('open');
-        if (isOpen) {
-          panel.classList.remove('open');
-          toggleBtn.classList.remove('active');
-        } else {
-          panel.classList.add('open');
-          toggleBtn.classList.add('active');
-          loadDeductions(evt.handout_id, panel, evt.id);
-        }
-      });
-      bindCommentForm(panel, evt.handout_id);
-    }
-
-    // 드래그 & 드롭
-    card.addEventListener('dragstart', onDragStart.bind(item));
-    card.addEventListener('dragover',  onDragOver.bind(item));
-    card.addEventListener('dragleave', onDragLeave.bind(item));
-    card.addEventListener('drop',      onDrop.bind(item));
-    card.addEventListener('dragend',   onDragEnd);
-  });
-}
-
-// ── 추리 댓글 로드 ───────────────────────────────
-async function loadDeductions(handoutId, panel, eventId) {
-  const listId = `cl-${eventId}`;
-  const listEl = panel.querySelector(`#${listId}`) || panel.querySelector('.comment-list');
-  if (handoutCache[handoutId]) {
-    renderCommentList(listEl, handoutCache[handoutId].player_deductions || [], handoutId);
-    return;
-  }
-  try {
-    const data = await fetch(`/api/handouts/${handoutId}`).then(r => r.json());
-    handoutCache[handoutId] = data;
-    renderCommentList(listEl, data.player_deductions || [], handoutId);
-  } catch {
-    listEl.innerHTML = '<div class="tab-empty">불러오기 실패</div>';
-  }
-}
-
-function renderCommentList(listEl, deductions, handoutId) {
-  if (!deductions.length) {
-    listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
-    return;
-  }
-  listEl.innerHTML = deductions.map(c => `
-    <div class="comment-item" data-cid="${escHtml(c.id)}">
-      <button class="comment-delete" title="삭제">✕</button>
-      <div class="comment-header">
-        <span class="comment-nickname">${escHtml(c.nickname)}</span>
-        <span class="comment-time">${formatTime(c.timestamp)}</span>
-      </div>
-      <div class="comment-text">${escHtml(c.text)}</div>
-    </div>`).join('');
-  listEl.querySelectorAll('.comment-item').forEach(el => bindCommentDelete(el, listEl, handoutId));
-}
-
-function bindCommentDelete(el, listEl, handoutId) {
-  el.querySelector('.comment-delete').addEventListener('click', async () => {
-    await fetch(`/api/handouts/${handoutId}/deductions/${el.dataset.cid}`, { method: 'DELETE' });
-    if (handoutCache[handoutId])
-      handoutCache[handoutId].player_deductions =
-        handoutCache[handoutId].player_deductions.filter(c => c.id !== el.dataset.cid);
-    el.remove();
-    if (!listEl.querySelector('.comment-item'))
-      listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
-  });
-}
-
-function bindCommentForm(panel, handoutId) {
-  const nicknameInput = panel.querySelector('.comment-nickname-input');
-  const textInput     = panel.querySelector('.comment-text-input');
-  const errEl         = panel.querySelector('.comment-error');
-  const submitBtn     = panel.querySelector('.btn-comment-submit');
-  const listEl        = panel.querySelector('.comment-list');
-
-  submitBtn.addEventListener('click', async () => {
-    const nickname = nicknameInput.value.trim();
-    const text     = textInput.value.trim();
-    if (!nickname || !text) { errEl.classList.add('visible'); return; }
-    errEl.classList.remove('visible');
-    savedNickname = nickname;
-    document.querySelectorAll('.comment-nickname-input').forEach(el => el.value = nickname);
-
-    const comment = await fetch(`/api/handouts/${handoutId}/deductions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nickname, text }),
-    }).then(r => r.json());
-    textInput.value = '';
-
-    if (handoutCache[handoutId]) {
-      if (!handoutCache[handoutId].player_deductions) handoutCache[handoutId].player_deductions = [];
-      handoutCache[handoutId].player_deductions.push(comment);
-    }
-
-    const emptyEl = listEl.querySelector('.tab-empty');
-    if (emptyEl) emptyEl.remove();
-    const el = document.createElement('div');
-    el.className = 'comment-item';
-    el.dataset.cid = comment.id;
-    el.innerHTML = `
-      <button class="comment-delete" title="삭제">✕</button>
-      <div class="comment-header">
-        <span class="comment-nickname">${escHtml(comment.nickname)}</span>
-        <span class="comment-time">${formatTime(comment.timestamp)}</span>
-      </div>
-      <div class="comment-text">${escHtml(comment.text)}</div>`;
-    listEl.appendChild(el);
-    bindCommentDelete(el, listEl, handoutId);
-  });
-}
-
-// ── 드래그 & 드롭 ────────────────────────────────
-function onDragStart(e) {
-  dragSrcId = this.dataset.id;
-  this.querySelector('.event-card').classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-}
-function onDragOver(e) {
-  e.preventDefault();
-  if (this.dataset.id !== dragSrcId) this.querySelector('.event-card').classList.add('drag-over');
-}
-function onDragLeave() { this.querySelector('.event-card').classList.remove('drag-over'); }
-function onDrop(e) {
-  e.preventDefault();
-  this.querySelector('.event-card').classList.remove('drag-over');
-  const targetId = this.dataset.id;
-  if (!dragSrcId || dragSrcId === targetId) return;
-  const si = allEvents.findIndex(ev => ev.id === dragSrcId);
-  const ti = allEvents.findIndex(ev => ev.id === targetId);
-  allEvents.splice(ti, 0, allEvents.splice(si, 1)[0]);
-  renderTimeline();
-  fetch('/api/events/reorder', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: allEvents.map(e => e.id) }),
-  });
-}
-function onDragEnd() {
-  document.querySelectorAll('.event-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
-}
-
 // ── 핸드아웃 보기 (모달) ─────────────────────────
 async function openHandout(id) {
   showModal('<div class="loading">불러오는 중...</div>');
   try {
     let h = handoutCache[id];
-    if (!h) { h = await fetch(`/api/handouts/${id}`).then(r => r.json()); handoutCache[id] = h; }
+    if (!h) {
+      h = await fetch(`/api/handouts/${id}`).then(r => r.json());
+      handoutCache[id] = h;
+    }
     renderHandout(h);
   } catch {
     modalContent.innerHTML = '<div class="error">핸드아웃을 불러오지 못했습니다.</div>';
@@ -330,13 +151,12 @@ async function openHandout(id) {
 
 // ── 핸드아웃 생성 (모달) ─────────────────────────
 function openCreateHandout() {
-  const eventId = null;
   showModal(`
     <div class="modal-header-bar">
       <span class="modal-header-title">새 핸드아웃 추가</span>
     </div>
     <div class="tab-panel active" style="display:block">
-      <div class="edit-form" id="createForm">
+      <div class="edit-form">
         <div class="edit-form-row">
           <label>제목 <span class="required">*</span></label>
           <input type="text" id="cTitle" placeholder="핸드아웃 제목">
@@ -383,19 +203,18 @@ function openCreateHandout() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title,
-        content:          document.getElementById('cContent').value,
-        npc:              document.getElementById('cNpc').value,
-        item:             document.getElementById('cItem').value,
-        acquired_date:    document.getElementById('cAcqDate').value,
-        acquired_location:document.getElementById('cAcqLoc').value,
-        event_id: eventId,
+        content:           document.getElementById('cContent').value,
+        npc:               document.getElementById('cNpc').value,
+        item:              document.getElementById('cItem').value,
+        acquired_date:     document.getElementById('cAcqDate').value,
+        acquired_location: document.getElementById('cAcqLoc').value,
       }),
     }).then(r => r.json());
 
     handoutCache[newH.id] = newH;
+    handoutOrder.push(newH.id);
     closeModal();
 
-    // 그리드에 블록 추가
     const grid = document.getElementById('handoutGrid');
     const emptyEl = grid.querySelector('.handout-grid-empty');
     if (emptyEl) emptyEl.remove();
@@ -403,26 +222,26 @@ function openCreateHandout() {
   });
 }
 
-// ── 핸드아웃 렌더 ────────────────────────────────
+// ── 핸드아웃 렌더 (모달) ────────────────────────
 function renderHandout(h) {
   const metaRow = [
     h.npc  ? `<span><strong>NPC</strong> ${escHtml(h.npc)}</span>`   : '',
     h.item ? `<span><strong>아이템</strong> ${escHtml(h.item)}</span>` : '',
-  ].filter(Boolean).join('');
+  ].join('');
   const acqRow = [
     h.acquired_date     ? `<span><strong>획득 날짜</strong> ${escHtml(h.acquired_date)}</span>`     : '',
     h.acquired_location ? `<span><strong>획득 위치</strong> ${escHtml(h.acquired_location)}</span>` : '',
-  ].filter(Boolean).join('');
+  ].join('');
 
   showModal(`
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="original">원문</button>
       <button class="tab-btn" data-tab="summary">요약</button>
+      <button class="tab-btn" data-tab="deduction">추리</button>
     </div>
 
     <!-- 원문 탭 -->
     <div class="tab-panel active" data-panel="original">
-      <!-- 보기 모드 -->
       <div id="viewMode">
         <div class="original-view-header">
           <div class="handout-title" id="viewTitle">${escHtml(h.title)}</div>
@@ -431,12 +250,12 @@ function renderHandout(h) {
             <button class="btn-delete" id="btnDelete">🗑</button>
           </div>
         </div>
-        <div class="handout-body" id="viewContent">${escHtml(h.content)}</div>
-        ${metaRow  ? `<div class="handout-meta-row" id="viewMeta">${metaRow}</div>`   : '<div id="viewMeta"></div>'}
-        ${acqRow   ? `<div class="handout-acq-row" id="viewAcq">${acqRow}</div>`      : '<div id="viewAcq"></div>'}
+        <div class="handout-body" id="viewContent"></div>
+        <div class="handout-divider"></div>
+        <div class="handout-meta-row" id="viewMeta">${metaRow}</div>
+        <div class="handout-acq-row" id="viewAcq">${acqRow}</div>
       </div>
 
-      <!-- 수정 모드 (기본 숨김) -->
       <div id="editMode" hidden>
         <div class="edit-form">
           <div class="edit-form-row"><label>제목</label>
@@ -459,7 +278,6 @@ function renderHandout(h) {
         </div>
       </div>
 
-      <!-- 삭제 확인 -->
       <div id="deleteConfirm" hidden>
         <div class="delete-confirm-box">
           <span>핸드아웃을 삭제할까요? 복구할 수 없습니다.</span>
@@ -482,7 +300,30 @@ function renderHandout(h) {
         </div>
       </div>
     </div>
+
+    <!-- 추리 탭 -->
+    <div class="tab-panel" data-panel="deduction">
+      <div class="comment-list" id="modalCommentList">
+        <div class="tab-empty">추리 탭을 열면 불러옵니다.</div>
+      </div>
+      <div class="comment-form">
+        <div class="comment-form-top">
+          <input class="comment-nickname-input" placeholder="닉네임"
+                 value="${escHtml(savedNickname)}" maxlength="20">
+        </div>
+        <textarea class="comment-text-input"
+                  placeholder="추리한 내용, 단서, 가설 등을 적어보세요."></textarea>
+        <div class="comment-form-bottom">
+          <span class="comment-error">닉네임과 내용을 모두 입력해주세요.</span>
+          <button class="btn-comment-submit">추리 추가</button>
+        </div>
+      </div>
+    </div>
   `);
+
+  // 원문 본문 줄바꿈 보존
+  document.getElementById('viewContent').innerHTML =
+    escHtml(h.content).replace(/\n/g, '<br>');
 
   // 탭 전환
   modalContent.querySelectorAll('.tab-btn').forEach(btn => {
@@ -491,6 +332,7 @@ function renderHandout(h) {
       modalContent.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       modalContent.querySelector(`[data-panel="${btn.dataset.tab}"]`).classList.add('active');
+      if (btn.dataset.tab === 'deduction') loadModalDeductions(h.id);
     });
   });
 
@@ -504,7 +346,7 @@ function renderHandout(h) {
     document.getElementById('viewMode').hidden = false;
   });
 
-  // 저장 (모든 필드 한 번에)
+  // 저장 (모든 필드)
   document.getElementById('btnSaveAll').addEventListener('click', async () => {
     const updated = {
       title:             document.getElementById('eTitle').value,
@@ -518,23 +360,24 @@ function renderHandout(h) {
     Object.assign(h, updated);
     if (handoutCache[h.id]) Object.assign(handoutCache[h.id], updated);
 
-    // 보기 모드 갱신
     document.getElementById('viewTitle').textContent = updated.title;
-    document.getElementById('viewContent').textContent = updated.content;
+    document.getElementById('viewContent').innerHTML =
+      escHtml(updated.content).replace(/\n/g, '<br>');
     document.getElementById('viewMeta').innerHTML = [
       updated.npc  ? `<span><strong>NPC</strong> ${escHtml(updated.npc)}</span>`   : '',
       updated.item ? `<span><strong>아이템</strong> ${escHtml(updated.item)}</span>` : '',
-    ].filter(Boolean).join('');
+    ].join('');
     document.getElementById('viewAcq').innerHTML = [
       updated.acquired_date     ? `<span><strong>획득 날짜</strong> ${escHtml(updated.acquired_date)}</span>`     : '',
       updated.acquired_location ? `<span><strong>획득 위치</strong> ${escHtml(updated.acquired_location)}</span>` : '',
-    ].filter(Boolean).join('');
+    ].join('');
 
-    // 타임라인 카드 제목 갱신
-    const evt = allEvents.find(e => e.handout_id === h.id);
-    if (evt) {
-      const el = document.querySelector(`[data-id="${evt.id}"] .event-title`);
-      if (el) el.textContent = updated.title;
+    // 그리드 블록 갱신
+    const blockEl = document.querySelector(`[data-hid="${h.id}"]`);
+    if (blockEl) {
+      blockEl.querySelector('.handout-block-title').textContent = updated.title;
+      blockEl.querySelector('.handout-block-preview').innerHTML =
+        escHtml(updated.content).replace(/\n/g, '<br>');
     }
 
     showStatus('statusAll');
@@ -542,7 +385,7 @@ function renderHandout(h) {
     document.getElementById('viewMode').hidden = false;
   });
 
-  // 삭제 버튼 → 확인창
+  // 삭제
   document.getElementById('btnDelete').addEventListener('click', () => {
     document.getElementById('deleteConfirm').hidden = false;
     document.getElementById('btnDelete').hidden = true;
@@ -556,17 +399,134 @@ function renderHandout(h) {
   document.getElementById('btnDeleteConfirm').addEventListener('click', async () => {
     await fetch(`/api/handouts/${h.id}`, { method: 'DELETE' });
     delete handoutCache[h.id];
-    const evt = allEvents.find(e => e.handout_id === h.id);
-    if (evt) evt.handout_id = null;
+    handoutOrder = handoutOrder.filter(id => id !== h.id);
     closeModal();
-    renderTimeline();
+    const blockEl = document.querySelector(`[data-hid="${h.id}"]`);
+    if (blockEl) {
+      blockEl.remove();
+      if (!document.querySelector('.handout-block')) {
+        document.getElementById('handoutGrid').innerHTML =
+          '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
+      }
+    }
   });
 
   // 요약 저장
   document.getElementById('btnSaveSummary').addEventListener('click', async () => {
-    await patchHandout(h.id, { player_summary: document.getElementById('fSummary').value });
-    if (handoutCache[h.id]) handoutCache[h.id].player_summary = document.getElementById('fSummary').value;
+    const val = document.getElementById('fSummary').value;
+    await patchHandout(h.id, { player_summary: val });
+    if (handoutCache[h.id]) handoutCache[h.id].player_summary = val;
     showStatus('statusSummary');
+  });
+
+  // 추리 댓글 폼
+  bindModalCommentForm(h.id);
+}
+
+// ── 추리 댓글 로드 (모달) ───────────────────────
+function loadModalDeductions(handoutId) {
+  const listEl = document.getElementById('modalCommentList');
+  if (!listEl) return;
+  const cached = handoutCache[handoutId];
+  if (cached && cached._deductionsLoaded) {
+    renderModalCommentList(listEl, cached.player_deductions || [], handoutId);
+    return;
+  }
+  listEl.innerHTML = '<div class="tab-empty">불러오는 중...</div>';
+  fetch(`/api/handouts/${handoutId}`)
+    .then(r => r.json())
+    .then(data => {
+      if (handoutCache[handoutId]) {
+        handoutCache[handoutId].player_deductions = data.player_deductions || [];
+        handoutCache[handoutId]._deductionsLoaded = true;
+      }
+      renderModalCommentList(listEl, data.player_deductions || [], handoutId);
+    })
+    .catch(() => { listEl.innerHTML = '<div class="tab-empty">불러오기 실패</div>'; });
+}
+
+function renderModalCommentList(listEl, deductions, handoutId) {
+  if (!deductions.length) {
+    listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+    return;
+  }
+  listEl.innerHTML = deductions.map(c => `
+    <div class="comment-item" data-cid="${escHtml(c.id)}">
+      <button class="comment-delete" title="삭제">✕</button>
+      <div class="comment-header">
+        <span class="comment-nickname">${escHtml(c.nickname)}</span>
+        <span class="comment-time">${formatTime(c.timestamp)}</span>
+      </div>
+      <div class="comment-text">${escHtml(c.text)}</div>
+    </div>`).join('');
+  listEl.querySelectorAll('.comment-item').forEach(el => {
+    el.querySelector('.comment-delete').addEventListener('click', async () => {
+      await fetch(`/api/handouts/${handoutId}/deductions/${el.dataset.cid}`,
+        { method: 'DELETE' });
+      if (handoutCache[handoutId])
+        handoutCache[handoutId].player_deductions =
+          (handoutCache[handoutId].player_deductions || [])
+            .filter(c => c.id !== el.dataset.cid);
+      el.remove();
+      if (!listEl.querySelector('.comment-item'))
+        listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+    });
+  });
+}
+
+function bindModalCommentForm(handoutId) {
+  const form = modalContent.querySelector('.comment-form');
+  if (!form) return;
+  const nicknameInput = form.querySelector('.comment-nickname-input');
+  const textInput     = form.querySelector('.comment-text-input');
+  const errEl         = form.querySelector('.comment-error');
+  const submitBtn     = form.querySelector('.btn-comment-submit');
+
+  submitBtn.addEventListener('click', async () => {
+    const nickname = nicknameInput.value.trim();
+    const text     = textInput.value.trim();
+    if (!nickname || !text) { errEl.classList.add('visible'); return; }
+    errEl.classList.remove('visible');
+    savedNickname = nickname;
+
+    const comment = await fetch(`/api/handouts/${handoutId}/deductions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname, text }),
+    }).then(r => r.json());
+    textInput.value = '';
+
+    if (handoutCache[handoutId]) {
+      if (!handoutCache[handoutId].player_deductions)
+        handoutCache[handoutId].player_deductions = [];
+      handoutCache[handoutId].player_deductions.push(comment);
+      handoutCache[handoutId]._deductionsLoaded = true;
+    }
+
+    const listEl = document.getElementById('modalCommentList');
+    if (!listEl) return;
+    const emptyEl = listEl.querySelector('.tab-empty');
+    if (emptyEl) emptyEl.remove();
+    const el = document.createElement('div');
+    el.className = 'comment-item';
+    el.dataset.cid = comment.id;
+    el.innerHTML = `
+      <button class="comment-delete" title="삭제">✕</button>
+      <div class="comment-header">
+        <span class="comment-nickname">${escHtml(comment.nickname)}</span>
+        <span class="comment-time">${formatTime(comment.timestamp)}</span>
+      </div>
+      <div class="comment-text">${escHtml(comment.text)}</div>`;
+    listEl.appendChild(el);
+    el.querySelector('.comment-delete').addEventListener('click', async () => {
+      await fetch(`/api/handouts/${handoutId}/deductions/${comment.id}`, { method: 'DELETE' });
+      if (handoutCache[handoutId])
+        handoutCache[handoutId].player_deductions =
+          (handoutCache[handoutId].player_deductions || [])
+            .filter(c => c.id !== comment.id);
+      el.remove();
+      if (!listEl.querySelector('.comment-item'))
+        listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+    });
   });
 }
 
@@ -605,6 +565,4 @@ function formatTime(iso) {
 }
 
 document.getElementById('btnNewHandout').addEventListener('click', openCreateHandout);
-
-loadTimeline();
 loadHandoutSection();
