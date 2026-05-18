@@ -60,12 +60,14 @@ async function initDB() {
       player_summary     TEXT    DEFAULT '',
       player_deductions  JSONB   DEFAULT '[]'::jsonb,
       sort_order         INTEGER DEFAULT 0,
-      updated_at         TIMESTAMP DEFAULT NOW()
+      updated_at         TIMESTAMP DEFAULT NOW(),
+      category           TEXT    DEFAULT ''
     )
   `);
   // 기존 테이블에 컬럼 없으면 추가
   await pool.query(`ALTER TABLE handouts ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`);
   await pool.query(`ALTER TABLE handouts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+  await pool.query(`ALTER TABLE handouts ADD COLUMN IF NOT EXISTS category TEXT DEFAULT ''`);
 
   // JSON 파일이 있고 DB가 비어있으면 마이그레이션
   const { rows: ec } = await pool.query('SELECT COUNT(*)::int AS c FROM events');
@@ -163,7 +165,7 @@ app.get('/api/handouts/:id', async (req, res) => {
 });
 
 app.post('/api/handouts', async (req, res) => {
-  const { title, content='', npc='', item='', acquired_date='', acquired_location='', event_id } = req.body;
+  const { title, content='', npc='', item='', acquired_date='', acquired_location='', category='', event_id } = req.body;
   if (!title) return res.status(400).json({ error: '제목을 입력해주세요.' });
   const id = 'ho_' + Date.now();
 
@@ -171,9 +173,9 @@ app.post('/api/handouts', async (req, res) => {
     const { rows: maxRow } = await pool.query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM handouts');
     const nextOrder = maxRow[0].next;
     await pool.query(
-      `INSERT INTO handouts (id,title,content,npc,item,acquired_date,acquired_location,sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, title, content, npc, item, acquired_date, acquired_location, nextOrder]
+      `INSERT INTO handouts (id,title,content,npc,item,acquired_date,acquired_location,sort_order,category)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, title, content, npc, item, acquired_date, acquired_location, nextOrder, category]
     );
     if (event_id)
       await pool.query('UPDATE events SET handout_id=$1 WHERE id=$2', [id, event_id]);
@@ -182,7 +184,7 @@ app.post('/api/handouts', async (req, res) => {
   }
   const handouts = readJSON('handouts.json');
   const newH = { id, title, content, npc, item, image_url:'', is_public:true,
-                  acquired_date, acquired_location, player_summary:'', player_deductions:[] };
+                  acquired_date, acquired_location, player_summary:'', player_deductions:[], category };
   handouts.push(newH);
   writeJSON('handouts.json', handouts);
   if (event_id) {
@@ -193,7 +195,7 @@ app.post('/api/handouts', async (req, res) => {
   res.json(newH);
 });
 
-const EDITABLE = ['title','content','npc','item','acquired_date','acquired_location','player_summary'];
+const EDITABLE = ['title','content','npc','item','acquired_date','acquired_location','player_summary','category'];
 
 app.patch('/api/handouts/:id', async (req, res) => {
   if (USE_DB) {

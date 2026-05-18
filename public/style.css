@@ -28,7 +28,7 @@ body {
 /* 양쪽 맞춤 예외: 버튼·입력·제목 등 */
 button, input, select, textarea,
 h1, h2, h3, h4,
-.handout-block-title,
+.handout-block-title, .block-category-badge,
 .handout-section-title,
 .handout-block-meta,
 .tab-btn,
@@ -318,6 +318,42 @@ h1, h2, h3, h4,
   background: rgba(200,151,42,0.06);
 }
 
+/* 카테고리 필터 바 */
+.category-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.btn-category {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  padding: 0.22rem 0.8rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-category:hover { color: var(--text); border-color: var(--text-muted); }
+.btn-category.active { color: var(--accent); border-color: var(--accent-dim); background: rgba(200,151,42,0.1); }
+
+/* 모달 내 카테고리 뱃지 */
+.modal-category-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.18rem 0.65rem;
+  background: rgba(200,151,42,0.1);
+  color: var(--accent-dim);
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+}
+
 /* 정렬 버튼 */
 .handout-header-right {
   display: flex;
@@ -405,14 +441,31 @@ h1, h2, h3, h4,
   flex-shrink: 0;
   opacity: 0.7;
 }
+.handout-block-titlearea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+}
 .handout-block-title {
   font-size: 1rem;
   font-weight: 500;
-  flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.block-category-badge {
+  font-size: 0.68rem;
+  padding: 0.18rem 0.6rem;
+  background: rgba(200,151,42,0.1);
+  color: var(--accent-dim);
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .handout-block-preview {
   font-size: 0.82rem;

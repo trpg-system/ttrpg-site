@@ -3,7 +3,8 @@ let handoutOrder  = [];
 let dragSrcId     = null;
 let savedNickname = '';
 const handoutCache = {};
-let currentSort   = localStorage.getItem('handoutSort') || 'custom';
+let currentSort   = localStorage.getItem('handoutSort') || 'oldest';
+let activeCategory = '';
 
 // ── DOM ──────────────────────────────────────────
 const overlay      = document.getElementById('modalOverlay');
@@ -27,22 +28,21 @@ async function loadHandoutSection() {
 function renderHandoutGrid(handouts) {
   handoutOrder = handouts.map(h => h.id);
   handouts.forEach(h => { handoutCache[h.id] = h; });
+  renderCategoryFilter();
   renderSortedGrid();
 }
 
 function getSortedHandouts() {
-  const list = handoutOrder.map(id => handoutCache[id]).filter(Boolean);
-  if (currentSort === 'created') {
+  let list = handoutOrder.map(id => handoutCache[id]).filter(Boolean);
+  // 카테고리 필터 적용
+  if (activeCategory) {
+    list = list.filter(h => (h.category || '') === activeCategory);
+  }
+  // 정렬: newest = 최신순(id 내림차순), 기본 = 오래된 순(id 오름차순)
+  if (currentSort === 'newest') {
     return [...list].sort((a, b) => b.id.localeCompare(a.id));
   }
-  if (currentSort === 'updated') {
-    return [...list].sort((a, b) => {
-      const ta = a.updated_at || '';
-      const tb = b.updated_at || '';
-      return tb.localeCompare(ta) || b.id.localeCompare(a.id);
-    });
-  }
-  return list; // custom (드래그) 순서
+  return [...list].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function renderSortedGrid() {
@@ -54,6 +54,38 @@ function renderSortedGrid() {
   }
   grid.innerHTML = '';
   sorted.forEach(h => grid.appendChild(buildHandoutItem(h)));
+}
+
+// ── 카테고리 필터 ─────────────────────────────────
+function renderCategoryFilter() {
+  const bar = document.getElementById('categoryFilterBar');
+  if (!bar) return;
+
+  const categories = [...new Set(
+    Object.values(handoutCache).map(h => h.category || '').filter(Boolean)
+  )].sort();
+
+  // 현재 선택된 카테고리가 더 이상 존재하지 않으면 초기화
+  if (activeCategory && !categories.includes(activeCategory)) {
+    activeCategory = '';
+  }
+
+  if (!categories.length) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.innerHTML = '';
+
+  ['', ...categories].forEach(cat => {
+    const btn = document.createElement('button');
+    btn.className = 'btn-category' + (activeCategory === cat ? ' active' : '');
+    btn.textContent = cat || '전체';
+    btn.addEventListener('click', () => {
+      activeCategory = cat;
+      document.querySelectorAll('.btn-category').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderSortedGrid();
+    });
+    bar.appendChild(btn);
+  });
 }
 
 // ── NPC / 아이템 헬퍼 ───────────────────────────
@@ -108,7 +140,10 @@ function buildHandoutItem(h) {
     <div class="handout-block-top">
       <div class="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
       <div class="handout-block-icon">📄</div>
-      <div class="handout-block-title">${escHtml(h.title)}</div>
+      <div class="handout-block-titlearea">
+        <div class="handout-block-title">${escHtml(h.title)}</div>
+        ${h.category ? `<span class="block-category-badge">${escHtml(h.category)}</span>` : ''}
+      </div>
       <div class="handout-block-actions">
         <button class="btn-block-action btn-block-expand">▼ 펼치기</button>
         <button class="btn-block-action btn-block-view">보기</button>
@@ -263,6 +298,7 @@ function confirmDeleteBlock(handoutId, wrapperEl) {
     delete handoutCache[handoutId];
     handoutOrder = handoutOrder.filter(id => id !== handoutId);
     wrapperEl.remove();
+    renderCategoryFilter();
     if (!document.querySelector('.handout-item'))
       document.getElementById('handoutGrid').innerHTML =
         '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
@@ -399,6 +435,10 @@ function openCreateHandout() {
           <input type="text" id="cTitle" placeholder="핸드아웃 제목">
         </div>
         <div class="edit-form-row">
+          <label>카테고리</label>
+          <input type="text" id="cCategory" placeholder="예) 인물, 단서, 장소...">
+        </div>
+        <div class="edit-form-row">
           <label>내용</label>
           <div class="content-toolbar">
             <button type="button" class="btn-toolbar btn-bold" data-target="cContent"><b>B</b> 볼드</button>
@@ -445,6 +485,7 @@ function openCreateHandout() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title,
+        category:          document.getElementById('cCategory').value.trim(),
         content:           document.getElementById('cContent').value,
         npc:               stringifyEntries(getEntries('cNpcList')),
         item:              stringifyEntries(getEntries('cItemList')),
@@ -460,6 +501,7 @@ function openCreateHandout() {
     const emptyEl = grid.querySelector('.handout-grid-empty');
     if (emptyEl) emptyEl.remove();
     grid.appendChild(buildHandoutItem(newH));
+    renderCategoryFilter();
   });
 }
 
@@ -478,6 +520,7 @@ function renderHandout(h) {
       <div id="viewMode">
         <div class="original-view-header">
           <div class="handout-title" id="viewTitle">${escHtml(h.title)}</div>
+          ${h.category ? `<div style="margin-top:0.3rem"><span class="modal-category-badge">${escHtml(h.category)}</span></div>` : ''}
           <div class="view-header-btns">
             <button class="btn-edit-toggle" id="btnEditToggle">✏ 수정</button>
             <button class="btn-delete" id="btnDelete">🗑</button>
@@ -495,6 +538,10 @@ function renderHandout(h) {
           <div class="edit-form-row">
             <label>제목</label>
             <input type="text" id="eTitle" value="${escHtml(h.title)}">
+          </div>
+          <div class="edit-form-row">
+            <label>카테고리</label>
+            <input type="text" id="eCategory" value="${escHtml(h.category || '')}" placeholder="예) 인물, 단서, 장소...">
           </div>
           <div class="edit-form-row">
             <label>내용</label>
@@ -565,6 +612,7 @@ function renderHandout(h) {
   document.getElementById('btnSaveAll').addEventListener('click', async () => {
     const updated = {
       title:             document.getElementById('eTitle').value,
+      category:          document.getElementById('eCategory').value.trim(),
       content:           document.getElementById('eContent').value,
       npc:               stringifyEntries(getEntries('eNpcList')),
       item:              stringifyEntries(getEntries('eItemList')),
@@ -620,6 +668,24 @@ function renderHandout(h) {
       if (expandInfoEl)
         expandInfoEl.innerHTML =
           renderEntriesHtml(newNpc, 'NPC') + renderEntriesHtml(newItem, '아이템');
+
+      // 카테고리 뱃지 갱신
+      const titleareaEl = itemEl.querySelector('.handout-block-titlearea');
+      if (titleareaEl) {
+        const badgeEl = titleareaEl.querySelector('.block-category-badge');
+        if (updated.category) {
+          if (badgeEl) { badgeEl.textContent = updated.category; }
+          else {
+            const nb = document.createElement('span');
+            nb.className = 'block-category-badge';
+            nb.textContent = updated.category;
+            titleareaEl.appendChild(nb);
+          }
+        } else if (badgeEl) {
+          badgeEl.remove();
+        }
+      }
+      renderCategoryFilter();
     }
 
     showStatus('statusAll');
@@ -646,6 +712,7 @@ function renderHandout(h) {
     const itemEl = document.querySelector(`[data-hid="${h.id}"]`);
     if (itemEl) {
       itemEl.remove();
+      renderCategoryFilter();
       if (!document.querySelector('.handout-item'))
         document.getElementById('handoutGrid').innerHTML =
           '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
