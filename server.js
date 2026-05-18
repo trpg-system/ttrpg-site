@@ -58,9 +58,12 @@ async function initDB() {
       acquired_date      TEXT    DEFAULT '',
       acquired_location  TEXT    DEFAULT '',
       player_summary     TEXT    DEFAULT '',
-      player_deductions  JSONB   DEFAULT '[]'::jsonb
+      player_deductions  JSONB   DEFAULT '[]'::jsonb,
+      sort_order         INTEGER DEFAULT 0
     )
   `);
+  // 기존 테이블에 sort_order 컬럼 없으면 추가
+  await pool.query(`ALTER TABLE handouts ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`);
 
   // JSON 파일이 있고 DB가 비어있으면 마이그레이션
   const { rows: ec } = await pool.query('SELECT COUNT(*)::int AS c FROM events');
@@ -79,13 +82,15 @@ async function initDB() {
   const { rows: hc } = await pool.query('SELECT COUNT(*)::int AS c FROM handouts');
   if (hc[0].c === 0 && fs.existsSync(path.join(DATA_DIR, 'handouts.json'))) {
     const handouts = readJSON('handouts.json');
-    for (const h of handouts) {
+    for (let i = 0; i < handouts.length; i++) {
+      const h = handouts[i];
       await pool.query(
-        `INSERT INTO handouts VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING`,
+        `INSERT INTO handouts (id,title,type,content,npc,item,image_url,is_public,acquired_date,acquired_location,player_summary,player_deductions,sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
         [h.id, h.title, h.type||'text', h.content||'', h.npc||'', h.item||'',
          h.image_url||'', h.is_public!==false,
          h.acquired_date||'', h.acquired_location||'',
-         h.player_summary||'', JSON.stringify(h.player_deductions||[])]
+         h.player_summary||'', JSON.stringify(h.player_deductions||[]), i]
       );
     }
     console.log(`핸드아웃 ${handouts.length}개 마이그레이션 완료`);
@@ -125,10 +130,23 @@ app.put('/api/events/reorder', async (req, res) => {
 // ═══════════════════════════════════════════════════
 app.get('/api/handouts', async (req, res) => {
   if (USE_DB) {
-    const { rows } = await pool.query('SELECT * FROM handouts ORDER BY id');
+    const { rows } = await pool.query('SELECT * FROM handouts ORDER BY sort_order, id');
     return res.json(rows.map(fmtHandout));
   }
   res.json(readJSON('handouts.json'));
+});
+
+app.put('/api/handouts/reorder', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: '잘못된 요청' });
+  if (USE_DB) {
+    for (let i = 0; i < ids.length; i++)
+      await pool.query('UPDATE handouts SET sort_order=$1 WHERE id=$2', [i, ids[i]]);
+    return res.json({ ok: true });
+  }
+  const handouts = readJSON('handouts.json');
+  writeJSON('handouts.json', ids.map(id => handouts.find(h => h.id === id)).filter(Boolean));
+  res.json({ ok: true });
 });
 
 app.get('/api/handouts/:id', async (req, res) => {
