@@ -339,6 +339,7 @@ body {
   font-size: 0.82rem;
   color: var(--text-muted);
   line-height: 1.5;
+  white-space: pre-wrap;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -550,13 +551,20 @@ body {
 }
 .btn-delete-confirm:hover { background: #a02828; }
 
+/* 원문 보기: 내용-메타 구분선 */
+.handout-divider {
+  margin-top: 1.2rem;
+  border-top: 1px solid var(--border);
+}
+
 /* 원문 보기: NPC/아이템 행, 획득 정보 행 */
 .handout-meta-row, .handout-acq-row {
   display: flex; gap: 1.5rem; flex-wrap: wrap;
-  margin-top: 1rem; padding-top: 0.85rem;
-  border-top: 1px solid var(--border);
+  margin-top: 0.85rem;
   font-size: 0.85rem; color: var(--text-muted);
+  min-height: 0;
 }
+.handout-meta-row:empty, .handout-acq-row:empty { margin-top: 0; }
 .handout-meta-row strong, .handout-acq-row strong {
   color: var(--accent-dim); margin-right: 0.35em;
 }

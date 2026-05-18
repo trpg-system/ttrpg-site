@@ -103,10 +103,7 @@ function confirmDeleteBlock(handoutId, block) {
 // ── 타임라인 렌더 ────────────────────────────────
 function renderTimeline() {
   timelineEl.innerHTML = '';
-  if (!allEvents.length) {
-    timelineEl.innerHTML = '<div class="loading">등록된 사건이 없습니다.</div>';
-    return;
-  }
+  if (!allEvents.length) return;
   allEvents.forEach(evt => {
     const hasHandout = !!evt.handout_id;
     const item = document.createElement('div');
@@ -188,12 +185,41 @@ function renderTimeline() {
       bindCommentForm(panel, evt.handout_id);
     }
 
-    // 드래그 & 드롭
-    card.addEventListener('dragstart', onDragStart.bind(item));
-    card.addEventListener('dragover',  onDragOver.bind(item));
-    card.addEventListener('dragleave', onDragLeave.bind(item));
-    card.addEventListener('drop',      onDrop.bind(item));
-    card.addEventListener('dragend',   onDragEnd);
+    // ── 드래그 & 드롭 (item 단위 클로저) ──
+    item.draggable = true;
+    item.addEventListener('dragstart', e => {
+      dragSrcId = evt.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', evt.id);
+    });
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (evt.id !== dragSrcId) card.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', e => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      const targetId = evt.id;
+      if (!dragSrcId || dragSrcId === targetId) return;
+      const si = allEvents.findIndex(ev => ev.id === dragSrcId);
+      const ti = allEvents.findIndex(ev => ev.id === targetId);
+      allEvents.splice(ti, 0, allEvents.splice(si, 1)[0]);
+      dragSrcId = null;
+      renderTimeline();
+      fetch('/api/events/reorder', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: allEvents.map(e => e.id) }),
+      });
+    });
+    item.addEventListener('dragend', () => {
+      dragSrcId = null;
+      document.querySelectorAll('.event-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
+    });
   });
 }
 
@@ -287,34 +313,6 @@ function bindCommentForm(panel, handoutId) {
   });
 }
 
-// ── 드래그 & 드롭 ────────────────────────────────
-function onDragStart(e) {
-  dragSrcId = this.dataset.id;
-  this.querySelector('.event-card').classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-}
-function onDragOver(e) {
-  e.preventDefault();
-  if (this.dataset.id !== dragSrcId) this.querySelector('.event-card').classList.add('drag-over');
-}
-function onDragLeave() { this.querySelector('.event-card').classList.remove('drag-over'); }
-function onDrop(e) {
-  e.preventDefault();
-  this.querySelector('.event-card').classList.remove('drag-over');
-  const targetId = this.dataset.id;
-  if (!dragSrcId || dragSrcId === targetId) return;
-  const si = allEvents.findIndex(ev => ev.id === dragSrcId);
-  const ti = allEvents.findIndex(ev => ev.id === targetId);
-  allEvents.splice(ti, 0, allEvents.splice(si, 1)[0]);
-  renderTimeline();
-  fetch('/api/events/reorder', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: allEvents.map(e => e.id) }),
-  });
-}
-function onDragEnd() {
-  document.querySelectorAll('.event-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
-}
 
 // ── 핸드아웃 보기 (모달) ─────────────────────────
 async function openHandout(id) {
@@ -432,8 +430,9 @@ function renderHandout(h) {
           </div>
         </div>
         <div class="handout-body" id="viewContent">${escHtml(h.content)}</div>
-        ${metaRow  ? `<div class="handout-meta-row" id="viewMeta">${metaRow}</div>`   : '<div id="viewMeta"></div>'}
-        ${acqRow   ? `<div class="handout-acq-row" id="viewAcq">${acqRow}</div>`      : '<div id="viewAcq"></div>'}
+        <div class="handout-divider"></div>
+        <div class="handout-meta-row" id="viewMeta">${metaRow}</div>
+        <div class="handout-acq-row" id="viewAcq">${acqRow}</div>
       </div>
 
       <!-- 수정 모드 (기본 숨김) -->
@@ -524,11 +523,11 @@ function renderHandout(h) {
     document.getElementById('viewMeta').innerHTML = [
       updated.npc  ? `<span><strong>NPC</strong> ${escHtml(updated.npc)}</span>`   : '',
       updated.item ? `<span><strong>아이템</strong> ${escHtml(updated.item)}</span>` : '',
-    ].filter(Boolean).join('');
+    ].join('');
     document.getElementById('viewAcq').innerHTML = [
       updated.acquired_date     ? `<span><strong>획득 날짜</strong> ${escHtml(updated.acquired_date)}</span>`     : '',
       updated.acquired_location ? `<span><strong>획득 위치</strong> ${escHtml(updated.acquired_location)}</span>` : '',
-    ].filter(Boolean).join('');
+    ].join('');
 
     // 타임라인 카드 제목 갱신
     const evt = allEvents.find(e => e.handout_id === h.id);
