@@ -91,12 +91,25 @@ function buildHandoutItem(h) {
       ${acqMeta ? `<div class="handout-block-meta">${escHtml(acqMeta)}</div>` : ''}
     </div>
     <div class="handout-block-actions">
+      <button class="btn-block-action btn-block-expand">▼ 펼치기</button>
       <button class="btn-block-action btn-block-view">보기</button>
       <button class="btn-block-action btn-toggle-deduction">💬 추리</button>
       <button class="btn-block-action btn-block-delete">🗑</button>
     </div>
   `;
-  block.querySelector('.handout-block-preview').innerHTML = renderContent(h.content);
+  const previewEl = block.querySelector('.handout-block-preview');
+  previewEl.innerHTML = renderContent(h.content);
+
+  // 추리 버튼 초기 카운트
+  updateDeductionBtn(h.id, block);
+
+  // 펼치기 / 접기
+  const expandBtn = block.querySelector('.btn-block-expand');
+  expandBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const expanded = previewEl.classList.toggle('expanded');
+    expandBtn.textContent = expanded ? '▲ 접기' : '▼ 펼치기';
+  });
 
   // 추리 패널
   const panel = document.createElement('div');
@@ -189,6 +202,16 @@ function buildHandoutItem(h) {
   return wrapper;
 }
 
+// ── 추리 버튼 카운트 갱신 ────────────────────────
+function updateDeductionBtn(handoutId, blockEl) {
+  const el = blockEl || document.querySelector(`[data-hid="${handoutId}"] .handout-block`);
+  if (!el) return;
+  const btn = el.querySelector('.btn-toggle-deduction');
+  if (!btn) return;
+  const count = (handoutCache[handoutId]?.player_deductions || []).length;
+  btn.textContent = count > 0 ? `💬 추리 (${count})` : '💬 추리';
+}
+
 function confirmDeleteBlock(handoutId, wrapperEl) {
   const existing = wrapperEl.querySelector('.inline-delete-confirm');
   if (existing) { existing.remove(); return; }
@@ -255,6 +278,7 @@ function renderCommentList(listEl, deductions, handoutId) {
         handoutCache[handoutId].player_deductions =
           (handoutCache[handoutId].player_deductions || []).filter(c => c.id !== el.dataset.cid);
       el.remove();
+      updateDeductionBtn(handoutId);
       if (!listEl.querySelector('.comment-item'))
         listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
     });
@@ -288,6 +312,7 @@ function bindCommentForm(panel, handoutId) {
       handoutCache[handoutId].player_deductions.push(comment);
       handoutCache[handoutId]._deductionsLoaded = true;
     }
+    updateDeductionBtn(handoutId);
 
     const emptyEl = listEl.querySelector('.tab-empty');
     if (emptyEl) emptyEl.remove();
@@ -308,6 +333,7 @@ function bindCommentForm(panel, handoutId) {
         handoutCache[handoutId].player_deductions =
           (handoutCache[handoutId].player_deductions || []).filter(c => c.id !== comment.id);
       el.remove();
+      updateDeductionBtn(handoutId);
       if (!listEl.querySelector('.comment-item'))
         listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
     });
