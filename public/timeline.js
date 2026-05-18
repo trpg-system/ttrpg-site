@@ -107,7 +107,7 @@ function buildHandoutItem(h) {
   const itemEntries = parseEntries(h.item);
   const expandInfo = document.createElement('div');
   expandInfo.className = 'handout-block-expand-info';
-  expandInfo.hidden = true;
+  expandInfo.style.display = 'none';
   expandInfo.innerHTML = renderEntriesHtml(npcEntries, 'NPC') + renderEntriesHtml(itemEntries, '아이템');
   block.querySelector('.handout-block-content').appendChild(expandInfo);
 
@@ -119,7 +119,7 @@ function buildHandoutItem(h) {
   expandBtn.addEventListener('click', e => {
     e.stopPropagation();
     const expanded = previewEl.classList.toggle('expanded');
-    expandInfo.hidden = !expanded;
+    expandInfo.style.display = expanded ? '' : 'none';
     expandBtn.textContent = expanded ? '▲ 접기' : '▼ 펼치기';
   });
 
