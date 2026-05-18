@@ -320,6 +320,25 @@ body {
 }
 .handout-block:hover { border-color: var(--accent-dim); }
 
+/* 핸드아웃 블록 드래그 핸들 */
+.block-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  flex-shrink: 0;
+  color: var(--border);
+  font-size: 1.1rem;
+  cursor: grab;
+  user-select: none;
+  transition: color 0.15s;
+  align-self: stretch;
+}
+.block-drag-handle:hover { color: var(--accent-dim); }
+.block-drag-handle:active { cursor: grabbing; }
+.handout-block.dragging { opacity: 0.4; }
+.handout-block.drag-over { outline: 2px solid var(--accent-dim); }
+
 .handout-block-icon {
   font-size: 1.3rem;
   flex-shrink: 0;
