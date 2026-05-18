@@ -31,19 +31,57 @@ function renderHandoutGrid(handouts) {
     return;
   }
   grid.innerHTML = '';
-  handouts.forEach(h => grid.appendChild(buildHandoutBlock(h)));
+  handouts.forEach(h => grid.appendChild(buildHandoutItem(h)));
 }
 
-function buildHandoutBlock(h) {
-  const block = document.createElement('div');
-  block.className = 'handout-block';
-  block.dataset.hid = h.id;
+// ── NPC / 아이템 헬퍼 ───────────────────────────
+function parseEntries(str) {
+  if (!str) return [];
+  try {
+    const arr = JSON.parse(str);
+    return Array.isArray(arr) ? arr : [{ name: String(str), desc: '' }];
+  } catch {
+    return [{ name: String(str), desc: '' }];
+  }
+}
+function stringifyEntries(arr) {
+  const f = arr.filter(e => e.name || e.desc);
+  return f.length ? JSON.stringify(f) : '';
+}
+function renderEntriesHtml(entries, label) {
+  if (!entries.length) return '';
+  return entries.map(e => `
+    <div class="entry-view">
+      <div class="entry-view-top">
+        <span class="entry-view-label">${escHtml(label)}</span>
+        <span class="entry-view-name">${escHtml(e.name)}</span>
+      </div>
+      ${e.desc ? `<div class="entry-view-desc">${escHtml(e.desc)}</div>` : ''}
+    </div>`).join('');
+}
+
+// ── 콘텐츠 렌더 (볼드 + 줄바꿈) ─────────────────
+function renderContent(text) {
+  if (!text) return '';
+  return escHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+// ── 핸드아웃 아이템 (블록 + 추리 패널) ──────────
+function buildHandoutItem(h) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'handout-item';
+  wrapper.dataset.hid = h.id;
 
   const acqMeta = [
     h.acquired_date     ? `📅 ${h.acquired_date}`     : '',
     h.acquired_location ? `📍 ${h.acquired_location}` : '',
   ].filter(Boolean).join('  ');
 
+  // 블록 카드
+  const block = document.createElement('div');
+  block.className = 'handout-block';
   block.innerHTML = `
     <div class="block-drag-handle" title="드래그하여 순서 변경">⠿</div>
     <div class="handout-block-icon">📄</div>
@@ -54,51 +92,92 @@ function buildHandoutBlock(h) {
     </div>
     <div class="handout-block-actions">
       <button class="btn-block-action btn-block-view">보기</button>
+      <button class="btn-block-action btn-toggle-deduction">💬 추리</button>
       <button class="btn-block-action btn-block-delete">🗑</button>
     </div>
   `;
+  block.querySelector('.handout-block-preview').innerHTML = renderContent(h.content);
 
-  // 줄바꿈 보존 미리보기 (innerHTML 사용)
-  block.querySelector('.handout-block-preview').innerHTML =
-    escHtml(h.content).replace(/\n/g, '<br>');
+  // 추리 패널
+  const panel = document.createElement('div');
+  panel.className = 'deduction-panel';
+  panel.innerHTML = `
+    <div class="deduction-panel-inner">
+      <div class="deduction-panel-body">
+        <div class="comment-list" id="dcl-${h.id}"></div>
+        <div class="comment-form">
+          <div class="comment-form-top">
+            <input class="comment-nickname-input" placeholder="닉네임"
+                   value="${escHtml(savedNickname)}" maxlength="20">
+          </div>
+          <textarea class="comment-text-input"
+                    placeholder="추리한 내용, 단서, 가설 등을 적어보세요."></textarea>
+          <div class="comment-form-bottom">
+            <span class="comment-error">닉네임과 내용을 모두 입력해주세요.</span>
+            <button class="btn-comment-submit">추리 추가</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 
-  // ── 드래그 & 드롭 ──
-  block.draggable = true;
+  wrapper.appendChild(block);
+  wrapper.appendChild(panel);
 
-  block.addEventListener('dragstart', e => {
+  // 추리 토글
+  const toggleBtn = block.querySelector('.btn-toggle-deduction');
+  toggleBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const isOpen = panel.classList.contains('open');
+    if (isOpen) {
+      panel.classList.remove('open');
+      toggleBtn.classList.remove('active');
+      wrapper.classList.remove('panel-open');
+    } else {
+      panel.classList.add('open');
+      toggleBtn.classList.add('active');
+      wrapper.classList.add('panel-open');
+      loadDeductions(h.id, panel);
+    }
+  });
+  bindCommentForm(panel, h.id);
+
+  // 드래그 & 드롭
+  wrapper.draggable = true;
+  wrapper.addEventListener('dragstart', e => {
     dragSrcId = h.id;
     block.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', h.id);
   });
-  block.addEventListener('dragover', e => {
+  wrapper.addEventListener('dragover', e => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (h.id !== dragSrcId) block.classList.add('drag-over');
   });
-  block.addEventListener('dragleave', e => {
-    if (!block.contains(e.relatedTarget)) block.classList.remove('drag-over');
+  wrapper.addEventListener('dragleave', e => {
+    if (!wrapper.contains(e.relatedTarget)) block.classList.remove('drag-over');
   });
-  block.addEventListener('drop', e => {
+  wrapper.addEventListener('drop', e => {
     e.preventDefault();
     block.classList.remove('drag-over');
     if (!dragSrcId || dragSrcId === h.id) return;
     const grid = document.getElementById('handoutGrid');
-    const srcBlock = grid.querySelector(`[data-hid="${dragSrcId}"]`);
-    if (!srcBlock) return;
-    const allBlocks = [...grid.querySelectorAll('.handout-block')];
-    const si = allBlocks.indexOf(srcBlock);
-    const ti = allBlocks.indexOf(block);
-    if (si < ti) grid.insertBefore(srcBlock, block.nextSibling);
-    else         grid.insertBefore(srcBlock, block);
-    handoutOrder = [...grid.querySelectorAll('.handout-block')].map(b => b.dataset.hid);
+    const srcItem = grid.querySelector(`[data-hid="${dragSrcId}"]`);
+    if (!srcItem) return;
+    const all = [...grid.querySelectorAll('.handout-item')];
+    const si = all.indexOf(srcItem);
+    const ti = all.indexOf(wrapper);
+    if (si < ti) grid.insertBefore(srcItem, wrapper.nextSibling);
+    else         grid.insertBefore(srcItem, wrapper);
+    handoutOrder = [...grid.querySelectorAll('.handout-item')].map(w => w.dataset.hid);
     dragSrcId = null;
     fetch('/api/handouts/reorder', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: handoutOrder }),
     });
   });
-  block.addEventListener('dragend', () => {
+  wrapper.addEventListener('dragend', () => {
     dragSrcId = null;
     document.querySelectorAll('.handout-block')
       .forEach(b => b.classList.remove('dragging', 'drag-over'));
@@ -106,12 +185,12 @@ function buildHandoutBlock(h) {
 
   block.querySelector('.btn-block-view').addEventListener('click', () => openHandout(h.id));
   block.querySelector('.btn-block-delete').addEventListener('click',
-    () => confirmDeleteBlock(h.id, block));
-  return block;
+    () => confirmDeleteBlock(h.id, wrapper));
+  return wrapper;
 }
 
-function confirmDeleteBlock(handoutId, block) {
-  const existing = block.querySelector('.inline-delete-confirm');
+function confirmDeleteBlock(handoutId, wrapperEl) {
+  const existing = wrapperEl.querySelector('.inline-delete-confirm');
   if (existing) { existing.remove(); return; }
   const box = document.createElement('div');
   box.className = 'inline-delete-confirm';
@@ -120,17 +199,118 @@ function confirmDeleteBlock(handoutId, block) {
     <button class="btn-delete-confirm">삭제</button>
     <button class="btn-cancel">취소</button>
   `;
-  block.appendChild(box);
+  wrapperEl.querySelector('.handout-block').appendChild(box);
   box.querySelector('.btn-cancel').addEventListener('click', () => box.remove());
   box.querySelector('.btn-delete-confirm').addEventListener('click', async () => {
     await fetch(`/api/handouts/${handoutId}`, { method: 'DELETE' });
     delete handoutCache[handoutId];
     handoutOrder = handoutOrder.filter(id => id !== handoutId);
-    block.remove();
-    if (!document.querySelector('.handout-block')) {
+    wrapperEl.remove();
+    if (!document.querySelector('.handout-item'))
       document.getElementById('handoutGrid').innerHTML =
         '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
+  });
+}
+
+// ── 추리 댓글 ────────────────────────────────────
+async function loadDeductions(handoutId, panel) {
+  const listEl = panel.querySelector('.comment-list');
+  if (!listEl) return;
+  const cached = handoutCache[handoutId];
+  if (cached && cached._deductionsLoaded) {
+    renderCommentList(listEl, cached.player_deductions || [], handoutId);
+    return;
+  }
+  listEl.innerHTML = '<div class="tab-empty">불러오는 중...</div>';
+  try {
+    const data = await fetch(`/api/handouts/${handoutId}`).then(r => r.json());
+    if (handoutCache[handoutId]) {
+      handoutCache[handoutId].player_deductions = data.player_deductions || [];
+      handoutCache[handoutId]._deductionsLoaded = true;
     }
+    renderCommentList(listEl, data.player_deductions || [], handoutId);
+  } catch {
+    listEl.innerHTML = '<div class="tab-empty">불러오기 실패</div>';
+  }
+}
+
+function renderCommentList(listEl, deductions, handoutId) {
+  if (!deductions.length) {
+    listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+    return;
+  }
+  listEl.innerHTML = deductions.map(c => `
+    <div class="comment-item" data-cid="${escHtml(c.id)}">
+      <button class="comment-delete" title="삭제">✕</button>
+      <div class="comment-header">
+        <span class="comment-nickname">${escHtml(c.nickname)}</span>
+        <span class="comment-time">${formatTime(c.timestamp)}</span>
+      </div>
+      <div class="comment-text">${escHtml(c.text)}</div>
+    </div>`).join('');
+  listEl.querySelectorAll('.comment-item').forEach(el => {
+    el.querySelector('.comment-delete').addEventListener('click', async () => {
+      await fetch(`/api/handouts/${handoutId}/deductions/${el.dataset.cid}`, { method: 'DELETE' });
+      if (handoutCache[handoutId])
+        handoutCache[handoutId].player_deductions =
+          (handoutCache[handoutId].player_deductions || []).filter(c => c.id !== el.dataset.cid);
+      el.remove();
+      if (!listEl.querySelector('.comment-item'))
+        listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+    });
+  });
+}
+
+function bindCommentForm(panel, handoutId) {
+  const nicknameInput = panel.querySelector('.comment-nickname-input');
+  const textInput     = panel.querySelector('.comment-text-input');
+  const errEl         = panel.querySelector('.comment-error');
+  const submitBtn     = panel.querySelector('.btn-comment-submit');
+  const listEl        = panel.querySelector('.comment-list');
+
+  submitBtn.addEventListener('click', async () => {
+    const nickname = nicknameInput.value.trim();
+    const text     = textInput.value.trim();
+    if (!nickname || !text) { errEl.classList.add('visible'); return; }
+    errEl.classList.remove('visible');
+    savedNickname = nickname;
+    document.querySelectorAll('.comment-nickname-input').forEach(el => el.value = nickname);
+
+    const comment = await fetch(`/api/handouts/${handoutId}/deductions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nickname, text }),
+    }).then(r => r.json());
+    textInput.value = '';
+
+    if (handoutCache[handoutId]) {
+      if (!handoutCache[handoutId].player_deductions)
+        handoutCache[handoutId].player_deductions = [];
+      handoutCache[handoutId].player_deductions.push(comment);
+      handoutCache[handoutId]._deductionsLoaded = true;
+    }
+
+    const emptyEl = listEl.querySelector('.tab-empty');
+    if (emptyEl) emptyEl.remove();
+    const el = document.createElement('div');
+    el.className = 'comment-item';
+    el.dataset.cid = comment.id;
+    el.innerHTML = `
+      <button class="comment-delete" title="삭제">✕</button>
+      <div class="comment-header">
+        <span class="comment-nickname">${escHtml(comment.nickname)}</span>
+        <span class="comment-time">${formatTime(comment.timestamp)}</span>
+      </div>
+      <div class="comment-text">${escHtml(comment.text)}</div>`;
+    listEl.appendChild(el);
+    el.querySelector('.comment-delete').addEventListener('click', async () => {
+      await fetch(`/api/handouts/${handoutId}/deductions/${comment.id}`, { method: 'DELETE' });
+      if (handoutCache[handoutId])
+        handoutCache[handoutId].player_deductions =
+          (handoutCache[handoutId].player_deductions || []).filter(c => c.id !== comment.id);
+      el.remove();
+      if (!listEl.querySelector('.comment-item'))
+        listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+    });
   });
 }
 
@@ -139,10 +319,7 @@ async function openHandout(id) {
   showModal('<div class="loading">불러오는 중...</div>');
   try {
     let h = handoutCache[id];
-    if (!h) {
-      h = await fetch(`/api/handouts/${id}`).then(r => r.json());
-      handoutCache[id] = h;
-    }
+    if (!h) { h = await fetch(`/api/handouts/${id}`).then(r => r.json()); handoutCache[id] = h; }
     renderHandout(h);
   } catch {
     modalContent.innerHTML = '<div class="error">핸드아웃을 불러오지 못했습니다.</div>';
@@ -163,15 +340,20 @@ function openCreateHandout() {
         </div>
         <div class="edit-form-row">
           <label>내용</label>
-          <textarea id="cContent" placeholder="핸드아웃 내용"></textarea>
+          <div class="content-toolbar">
+            <button type="button" class="btn-toolbar btn-bold" data-target="cContent"><b>B</b> 볼드</button>
+          </div>
+          <textarea id="cContent" placeholder="핸드아웃 내용&#10;**굵게** 표시할 텍스트는 **별표 두 개**로 감싸세요."></textarea>
         </div>
         <div class="edit-form-row">
           <label>NPC</label>
-          <input type="text" id="cNpc" placeholder="이름, 설명 등">
+          <div class="entries-list" id="cNpcList"></div>
+          <button type="button" class="btn-add-entry" data-target="cNpcList">＋ NPC 추가</button>
         </div>
         <div class="edit-form-row">
           <label>아이템</label>
-          <input type="text" id="cItem" placeholder="이름, 설명 등">
+          <div class="entries-list" id="cItemList"></div>
+          <button type="button" class="btn-add-entry" data-target="cItemList">＋ 아이템 추가</button>
         </div>
         <div class="edit-form-row">
           <label>획득 날짜</label>
@@ -190,22 +372,22 @@ function openCreateHandout() {
     </div>
   `);
 
+  bindBoldButtons();
+  bindAddEntryButtons();
   document.getElementById('btnCreateCancel').addEventListener('click', closeModal);
   document.getElementById('btnCreate').addEventListener('click', async () => {
     const title = document.getElementById('cTitle').value.trim();
     if (!title) {
       const err = document.getElementById('createError');
-      err.textContent = '제목을 입력해주세요.';
-      err.classList.add('visible');
-      return;
+      err.textContent = '제목을 입력해주세요.'; err.classList.add('visible'); return;
     }
     const newH = await fetch('/api/handouts', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title,
         content:           document.getElementById('cContent').value,
-        npc:               document.getElementById('cNpc').value,
-        item:              document.getElementById('cItem').value,
+        npc:               stringifyEntries(getEntries('cNpcList')),
+        item:              stringifyEntries(getEntries('cItemList')),
         acquired_date:     document.getElementById('cAcqDate').value,
         acquired_location: document.getElementById('cAcqLoc').value,
       }),
@@ -214,20 +396,17 @@ function openCreateHandout() {
     handoutCache[newH.id] = newH;
     handoutOrder.push(newH.id);
     closeModal();
-
     const grid = document.getElementById('handoutGrid');
     const emptyEl = grid.querySelector('.handout-grid-empty');
     if (emptyEl) emptyEl.remove();
-    grid.appendChild(buildHandoutBlock(newH));
+    grid.appendChild(buildHandoutItem(newH));
   });
 }
 
 // ── 핸드아웃 렌더 (모달) ────────────────────────
 function renderHandout(h) {
-  const metaRow = [
-    h.npc  ? `<span><strong>NPC</strong> ${escHtml(h.npc)}</span>`   : '',
-    h.item ? `<span><strong>아이템</strong> ${escHtml(h.item)}</span>` : '',
-  ].join('');
+  const npcEntries  = parseEntries(h.npc);
+  const itemEntries = parseEntries(h.item);
   const acqRow = [
     h.acquired_date     ? `<span><strong>획득 날짜</strong> ${escHtml(h.acquired_date)}</span>`     : '',
     h.acquired_location ? `<span><strong>획득 위치</strong> ${escHtml(h.acquired_location)}</span>` : '',
@@ -237,11 +416,11 @@ function renderHandout(h) {
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="original">원문</button>
       <button class="tab-btn" data-tab="summary">요약</button>
-      <button class="tab-btn" data-tab="deduction">추리</button>
     </div>
 
     <!-- 원문 탭 -->
     <div class="tab-panel active" data-panel="original">
+      <!-- 보기 모드 -->
       <div id="viewMode">
         <div class="original-view-header">
           <div class="handout-title" id="viewTitle">${escHtml(h.title)}</div>
@@ -252,24 +431,42 @@ function renderHandout(h) {
         </div>
         <div class="handout-body" id="viewContent"></div>
         <div class="handout-divider"></div>
-        <div class="handout-meta-row" id="viewMeta">${metaRow}</div>
+        <div class="handout-entries-view" id="viewEntries"></div>
         <div class="handout-acq-row" id="viewAcq">${acqRow}</div>
       </div>
 
+      <!-- 수정 모드 -->
       <div id="editMode" hidden>
         <div class="edit-form">
-          <div class="edit-form-row"><label>제목</label>
-            <input type="text" id="eTitle" value="${escHtml(h.title)}"></div>
-          <div class="edit-form-row"><label>내용</label>
-            <textarea id="eContent">${escHtml(h.content)}</textarea></div>
-          <div class="edit-form-row"><label>NPC</label>
-            <input type="text" id="eNpc" value="${escHtml(h.npc || '')}" placeholder="이름, 설명 등"></div>
-          <div class="edit-form-row"><label>아이템</label>
-            <input type="text" id="eItem" value="${escHtml(h.item || '')}" placeholder="이름, 설명 등"></div>
-          <div class="edit-form-row"><label>획득 날짜</label>
-            <input type="text" id="eAcqDate" value="${escHtml(h.acquired_date || '')}" placeholder="예) 1일차 오후 2시"></div>
-          <div class="edit-form-row"><label>획득 위치</label>
-            <input type="text" id="eAcqLoc" value="${escHtml(h.acquired_location || '')}" placeholder="예) 그레이폴 여관"></div>
+          <div class="edit-form-row">
+            <label>제목</label>
+            <input type="text" id="eTitle" value="${escHtml(h.title)}">
+          </div>
+          <div class="edit-form-row">
+            <label>내용</label>
+            <div class="content-toolbar">
+              <button type="button" class="btn-toolbar btn-bold" data-target="eContent"><b>B</b> 볼드</button>
+            </div>
+            <textarea id="eContent">${escHtml(h.content)}</textarea>
+          </div>
+          <div class="edit-form-row">
+            <label>NPC</label>
+            <div class="entries-list" id="eNpcList"></div>
+            <button type="button" class="btn-add-entry" data-target="eNpcList">＋ NPC 추가</button>
+          </div>
+          <div class="edit-form-row">
+            <label>아이템</label>
+            <div class="entries-list" id="eItemList"></div>
+            <button type="button" class="btn-add-entry" data-target="eItemList">＋ 아이템 추가</button>
+          </div>
+          <div class="edit-form-row">
+            <label>획득 날짜</label>
+            <input type="text" id="eAcqDate" value="${escHtml(h.acquired_date || '')}" placeholder="예) 1일차 오후 2시">
+          </div>
+          <div class="edit-form-row">
+            <label>획득 위치</label>
+            <input type="text" id="eAcqLoc" value="${escHtml(h.acquired_location || '')}" placeholder="예) 그레이폴 여관">
+          </div>
           <div class="save-row">
             <button class="btn-save" id="btnSaveAll">저장</button>
             <button class="btn-cancel" id="btnCancelEdit">취소</button>
@@ -278,6 +475,7 @@ function renderHandout(h) {
         </div>
       </div>
 
+      <!-- 삭제 확인 -->
       <div id="deleteConfirm" hidden>
         <div class="delete-confirm-box">
           <span>핸드아웃을 삭제할까요? 복구할 수 없습니다.</span>
@@ -300,30 +498,18 @@ function renderHandout(h) {
         </div>
       </div>
     </div>
-
-    <!-- 추리 탭 -->
-    <div class="tab-panel" data-panel="deduction">
-      <div class="comment-list" id="modalCommentList">
-        <div class="tab-empty">추리 탭을 열면 불러옵니다.</div>
-      </div>
-      <div class="comment-form">
-        <div class="comment-form-top">
-          <input class="comment-nickname-input" placeholder="닉네임"
-                 value="${escHtml(savedNickname)}" maxlength="20">
-        </div>
-        <textarea class="comment-text-input"
-                  placeholder="추리한 내용, 단서, 가설 등을 적어보세요."></textarea>
-        <div class="comment-form-bottom">
-          <span class="comment-error">닉네임과 내용을 모두 입력해주세요.</span>
-          <button class="btn-comment-submit">추리 추가</button>
-        </div>
-      </div>
-    </div>
   `);
 
-  // 원문 본문 줄바꿈 보존
-  document.getElementById('viewContent').innerHTML =
-    escHtml(h.content).replace(/\n/g, '<br>');
+  // 보기 모드 초기 렌더
+  document.getElementById('viewContent').innerHTML = renderContent(h.content);
+  document.getElementById('viewEntries').innerHTML =
+    renderEntriesHtml(npcEntries, 'NPC') + renderEntriesHtml(itemEntries, '아이템');
+
+  // 수정 모드 에디터 초기화
+  buildEntriesEditor(document.getElementById('eNpcList'),  npcEntries);
+  buildEntriesEditor(document.getElementById('eItemList'), itemEntries);
+  bindBoldButtons();
+  bindAddEntryButtons();
 
   // 탭 전환
   modalContent.querySelectorAll('.tab-btn').forEach(btn => {
@@ -332,7 +518,6 @@ function renderHandout(h) {
       modalContent.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       modalContent.querySelector(`[data-panel="${btn.dataset.tab}"]`).classList.add('active');
-      if (btn.dataset.tab === 'deduction') loadModalDeductions(h.id);
     });
   });
 
@@ -346,13 +531,13 @@ function renderHandout(h) {
     document.getElementById('viewMode').hidden = false;
   });
 
-  // 저장 (모든 필드)
+  // 저장
   document.getElementById('btnSaveAll').addEventListener('click', async () => {
     const updated = {
       title:             document.getElementById('eTitle').value,
       content:           document.getElementById('eContent').value,
-      npc:               document.getElementById('eNpc').value,
-      item:              document.getElementById('eItem').value,
+      npc:               stringifyEntries(getEntries('eNpcList')),
+      item:              stringifyEntries(getEntries('eItemList')),
       acquired_date:     document.getElementById('eAcqDate').value,
       acquired_location: document.getElementById('eAcqLoc').value,
     };
@@ -360,24 +545,23 @@ function renderHandout(h) {
     Object.assign(h, updated);
     if (handoutCache[h.id]) Object.assign(handoutCache[h.id], updated);
 
+    const newNpc  = parseEntries(updated.npc);
+    const newItem = parseEntries(updated.item);
+
     document.getElementById('viewTitle').textContent = updated.title;
-    document.getElementById('viewContent').innerHTML =
-      escHtml(updated.content).replace(/\n/g, '<br>');
-    document.getElementById('viewMeta').innerHTML = [
-      updated.npc  ? `<span><strong>NPC</strong> ${escHtml(updated.npc)}</span>`   : '',
-      updated.item ? `<span><strong>아이템</strong> ${escHtml(updated.item)}</span>` : '',
-    ].join('');
+    document.getElementById('viewContent').innerHTML = renderContent(updated.content);
+    document.getElementById('viewEntries').innerHTML =
+      renderEntriesHtml(newNpc, 'NPC') + renderEntriesHtml(newItem, '아이템');
     document.getElementById('viewAcq').innerHTML = [
       updated.acquired_date     ? `<span><strong>획득 날짜</strong> ${escHtml(updated.acquired_date)}</span>`     : '',
       updated.acquired_location ? `<span><strong>획득 위치</strong> ${escHtml(updated.acquired_location)}</span>` : '',
     ].join('');
 
     // 그리드 블록 갱신
-    const blockEl = document.querySelector(`[data-hid="${h.id}"]`);
-    if (blockEl) {
-      blockEl.querySelector('.handout-block-title').textContent = updated.title;
-      blockEl.querySelector('.handout-block-preview').innerHTML =
-        escHtml(updated.content).replace(/\n/g, '<br>');
+    const itemEl = document.querySelector(`[data-hid="${h.id}"]`);
+    if (itemEl) {
+      itemEl.querySelector('.handout-block-title').textContent = updated.title;
+      itemEl.querySelector('.handout-block-preview').innerHTML = renderContent(updated.content);
     }
 
     showStatus('statusAll');
@@ -401,13 +585,12 @@ function renderHandout(h) {
     delete handoutCache[h.id];
     handoutOrder = handoutOrder.filter(id => id !== h.id);
     closeModal();
-    const blockEl = document.querySelector(`[data-hid="${h.id}"]`);
-    if (blockEl) {
-      blockEl.remove();
-      if (!document.querySelector('.handout-block')) {
+    const itemEl = document.querySelector(`[data-hid="${h.id}"]`);
+    if (itemEl) {
+      itemEl.remove();
+      if (!document.querySelector('.handout-item'))
         document.getElementById('handoutGrid').innerHTML =
           '<div class="handout-grid-empty">아직 핸드아웃이 없습니다.</div>';
-      }
     }
   });
 
@@ -418,114 +601,65 @@ function renderHandout(h) {
     if (handoutCache[h.id]) handoutCache[h.id].player_summary = val;
     showStatus('statusSummary');
   });
-
-  // 추리 댓글 폼
-  bindModalCommentForm(h.id);
 }
 
-// ── 추리 댓글 로드 (모달) ───────────────────────
-function loadModalDeductions(handoutId) {
-  const listEl = document.getElementById('modalCommentList');
-  if (!listEl) return;
-  const cached = handoutCache[handoutId];
-  if (cached && cached._deductionsLoaded) {
-    renderModalCommentList(listEl, cached.player_deductions || [], handoutId);
-    return;
-  }
-  listEl.innerHTML = '<div class="tab-empty">불러오는 중...</div>';
-  fetch(`/api/handouts/${handoutId}`)
-    .then(r => r.json())
-    .then(data => {
-      if (handoutCache[handoutId]) {
-        handoutCache[handoutId].player_deductions = data.player_deductions || [];
-        handoutCache[handoutId]._deductionsLoaded = true;
-      }
-      renderModalCommentList(listEl, data.player_deductions || [], handoutId);
-    })
-    .catch(() => { listEl.innerHTML = '<div class="tab-empty">불러오기 실패</div>'; });
+// ── NPC / 아이템 에디터 ──────────────────────────
+function buildEntriesEditor(containerEl, entries) {
+  containerEl.innerHTML = '';
+  if (entries.length) entries.forEach(e => addEntryRow(containerEl, e.name || '', e.desc || ''));
 }
 
-function renderModalCommentList(listEl, deductions, handoutId) {
-  if (!deductions.length) {
-    listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
-    return;
-  }
-  listEl.innerHTML = deductions.map(c => `
-    <div class="comment-item" data-cid="${escHtml(c.id)}">
-      <button class="comment-delete" title="삭제">✕</button>
-      <div class="comment-header">
-        <span class="comment-nickname">${escHtml(c.nickname)}</span>
-        <span class="comment-time">${formatTime(c.timestamp)}</span>
-      </div>
-      <div class="comment-text">${escHtml(c.text)}</div>
-    </div>`).join('');
-  listEl.querySelectorAll('.comment-item').forEach(el => {
-    el.querySelector('.comment-delete').addEventListener('click', async () => {
-      await fetch(`/api/handouts/${handoutId}/deductions/${el.dataset.cid}`,
-        { method: 'DELETE' });
-      if (handoutCache[handoutId])
-        handoutCache[handoutId].player_deductions =
-          (handoutCache[handoutId].player_deductions || [])
-            .filter(c => c.id !== el.dataset.cid);
-      el.remove();
-      if (!listEl.querySelector('.comment-item'))
-        listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+function addEntryRow(containerEl, name = '', desc = '') {
+  const row = document.createElement('div');
+  row.className = 'entry-row';
+  row.innerHTML = `
+    <div class="entry-row-top">
+      <input type="text" class="entry-name" placeholder="이름" value="${escHtml(name)}">
+      <button type="button" class="btn-remove-entry" title="삭제">✕</button>
+    </div>
+    <textarea class="entry-desc" placeholder="설명">${escHtml(desc)}</textarea>
+  `;
+  row.querySelector('.btn-remove-entry').addEventListener('click', () => row.remove());
+  containerEl.appendChild(row);
+}
+
+function getEntries(containerId) {
+  return [...document.querySelectorAll(`#${containerId} .entry-row`)].map(row => ({
+    name: row.querySelector('.entry-name').value.trim(),
+    desc: row.querySelector('.entry-desc').value.trim(),
+  })).filter(e => e.name || e.desc);
+}
+
+function bindAddEntryButtons() {
+  modalContent.querySelectorAll('.btn-add-entry').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const container = document.getElementById(btn.dataset.target);
+      if (container) addEntryRow(container);
     });
   });
 }
 
-function bindModalCommentForm(handoutId) {
-  const form = modalContent.querySelector('.comment-form');
-  if (!form) return;
-  const nicknameInput = form.querySelector('.comment-nickname-input');
-  const textInput     = form.querySelector('.comment-text-input');
-  const errEl         = form.querySelector('.comment-error');
-  const submitBtn     = form.querySelector('.btn-comment-submit');
-
-  submitBtn.addEventListener('click', async () => {
-    const nickname = nicknameInput.value.trim();
-    const text     = textInput.value.trim();
-    if (!nickname || !text) { errEl.classList.add('visible'); return; }
-    errEl.classList.remove('visible');
-    savedNickname = nickname;
-
-    const comment = await fetch(`/api/handouts/${handoutId}/deductions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nickname, text }),
-    }).then(r => r.json());
-    textInput.value = '';
-
-    if (handoutCache[handoutId]) {
-      if (!handoutCache[handoutId].player_deductions)
-        handoutCache[handoutId].player_deductions = [];
-      handoutCache[handoutId].player_deductions.push(comment);
-      handoutCache[handoutId]._deductionsLoaded = true;
-    }
-
-    const listEl = document.getElementById('modalCommentList');
-    if (!listEl) return;
-    const emptyEl = listEl.querySelector('.tab-empty');
-    if (emptyEl) emptyEl.remove();
-    const el = document.createElement('div');
-    el.className = 'comment-item';
-    el.dataset.cid = comment.id;
-    el.innerHTML = `
-      <button class="comment-delete" title="삭제">✕</button>
-      <div class="comment-header">
-        <span class="comment-nickname">${escHtml(comment.nickname)}</span>
-        <span class="comment-time">${formatTime(comment.timestamp)}</span>
-      </div>
-      <div class="comment-text">${escHtml(comment.text)}</div>`;
-    listEl.appendChild(el);
-    el.querySelector('.comment-delete').addEventListener('click', async () => {
-      await fetch(`/api/handouts/${handoutId}/deductions/${comment.id}`, { method: 'DELETE' });
-      if (handoutCache[handoutId])
-        handoutCache[handoutId].player_deductions =
-          (handoutCache[handoutId].player_deductions || [])
-            .filter(c => c.id !== comment.id);
-      el.remove();
-      if (!listEl.querySelector('.comment-item'))
-        listEl.innerHTML = '<div class="tab-empty">아직 작성된 추리가 없습니다.</div>';
+// ── 볼드 버튼 ────────────────────────────────────
+function bindBoldButtons() {
+  modalContent.querySelectorAll('.btn-bold').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ta = document.getElementById(btn.dataset.target);
+      if (!ta) return;
+      const start = ta.selectionStart;
+      const end   = ta.selectionEnd;
+      if (start === end) {
+        const ph = '굵은 텍스트';
+        ta.value = ta.value.slice(0, start) + `**${ph}**` + ta.value.slice(end);
+        ta.selectionStart = start + 2;
+        ta.selectionEnd   = start + 2 + ph.length;
+      } else {
+        const sel = ta.value.slice(start, end);
+        const rep = `**${sel}**`;
+        ta.value = ta.value.slice(0, start) + rep + ta.value.slice(end);
+        ta.selectionStart = start;
+        ta.selectionEnd   = start + rep.length;
+      }
+      ta.focus();
     });
   });
 }
