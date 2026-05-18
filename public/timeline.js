@@ -451,13 +451,7 @@ function renderHandout(h) {
   ].join('');
 
   showModal(`
-    <div class="tab-bar">
-      <button class="tab-btn active" data-tab="original">원문</button>
-      <button class="tab-btn" data-tab="summary">요약</button>
-    </div>
-
-    <!-- 원문 탭 -->
-    <div class="tab-panel active" data-panel="original">
+    <div class="tab-panel active">
       <!-- 보기 모드 -->
       <div id="viewMode">
         <div class="original-view-header">
@@ -522,20 +516,6 @@ function renderHandout(h) {
         </div>
       </div>
     </div>
-
-    <!-- 요약 탭 -->
-    <div class="tab-panel" data-panel="summary">
-      <div class="edit-form">
-        <div class="edit-form-row">
-          <label>핸드아웃 요약</label>
-          <textarea id="fSummary" placeholder="이 핸드아웃의 내용을 요약해 적어보세요.">${escHtml(h.player_summary || '')}</textarea>
-        </div>
-        <div class="save-row">
-          <button class="btn-save" id="btnSaveSummary">저장</button>
-          <span class="save-status" id="statusSummary">저장되었습니다.</span>
-        </div>
-      </div>
-    </div>
   `);
 
   // 보기 모드 초기 렌더
@@ -548,16 +528,6 @@ function renderHandout(h) {
   buildEntriesEditor(document.getElementById('eItemList'), itemEntries);
   bindBoldButtons();
   bindAddEntryButtons();
-
-  // 탭 전환
-  modalContent.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      modalContent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      modalContent.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      btn.classList.add('active');
-      modalContent.querySelector(`[data-panel="${btn.dataset.tab}"]`).classList.add('active');
-    });
-  });
 
   // 수정 모드 토글
   document.getElementById('btnEditToggle').addEventListener('click', () => {
@@ -636,13 +606,6 @@ function renderHandout(h) {
     }
   });
 
-  // 요약 저장
-  document.getElementById('btnSaveSummary').addEventListener('click', async () => {
-    const val = document.getElementById('fSummary').value;
-    await patchHandout(h.id, { player_summary: val });
-    if (handoutCache[h.id]) handoutCache[h.id].player_summary = val;
-    showStatus('statusSummary');
-  });
 }
 
 // ── NPC / 아이템 에디터 ──────────────────────────
