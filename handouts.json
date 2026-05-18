@@ -1,0 +1,58 @@
+[
+  {
+    "id": "ho_001",
+    "title": "그레이폴 마을 안내문",
+    "type": "text",
+    "content": "그레이폴에 오신 것을 환영합니다.\n\n이 마을은 오랜 역사를 자랑하며, 주민 모두가 서로를 아끼는 평화로운 곳입니다. 여관은 광장 동편에 위치해 있으며, 시장은 매일 오전에 열립니다.\n\n단, 밤에는 혼자 돌아다니지 마십시오.",
+    "image_url": "",
+    "npc": "",
+    "item": "",
+    "is_public": true,
+    "acquired_date": "1일차 오전 9시",
+    "acquired_location": "그레이폴 성문 앞",
+    "player_summary": "마을 입성 시 배포받은 안내문.",
+    "player_deductions": []
+  },
+  {
+    "id": "ho_002",
+    "title": "낡은 편지",
+    "type": "text",
+    "content": "이 편지를 읽는 자에게—\n\n나는 더 이상 숨을 수가 없다. 그들이 내 흔적을 쫓고 있다.\n마을 동쪽 낡은 방앗간 지하에 내가 찾은 것을 숨겨두었다.\n부디 그것이 잘못된 손에 넘어가지 않기를.\n\n— 에드린 노인",
+    "image_url": "",
+    "npc": "에드린 (행방불명된 노학자)",
+    "item": "",
+    "is_public": true,
+    "acquired_date": "",
+    "acquired_location": "",
+    "player_summary": "",
+    "player_deductions": []
+  },
+  {
+    "id": "ho_003",
+    "title": "수상한 거래 메모",
+    "type": "text",
+    "content": "시장에서 목격한 내용:\n- 복면을 쓴 인물이 상인에게 붉은 인장이 찍힌 소포를 건넴\n- 상인은 소포를 받자마자 뒷골목으로 사라짐\n- 붉은 인장의 문양: 뱀이 십자형 단검을 감고 있는 형태",
+    "image_url": "",
+    "npc": "",
+    "item": "붉은 인장이 찍힌 소포 (내용물 미확인)",
+    "is_public": true,
+    "acquired_date": "",
+    "acquired_location": "",
+    "player_summary": "",
+    "player_deductions": []
+  },
+  {
+    "id": "ho_004",
+    "title": "지하실 비문",
+    "type": "text",
+    "content": "교회 지하 벽에 새겨진 고대 문자를 해독한 내용:\n\n'어둠의 문은 세 번의 달이 겹칠 때 열린다.\n봉인을 깨는 자는 다섯 개의 열쇠를 모아야 한다.\n첫 번째 열쇠는 잊혀진 자의 심장 속에 있다.'\n\n의식의 흔적: 바닥에 오래된 핏자국, 촛농, 검게 탄 양피지 조각",
+    "image_url": "",
+    "npc": "",
+    "item": "검게 탄 양피지 조각 (부분 해독 가능)",
+    "is_public": true,
+    "acquired_date": "",
+    "acquired_location": "",
+    "player_summary": "",
+    "player_deductions": []
+  }
+]

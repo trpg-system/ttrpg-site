@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>타임라인 — TTRPG 핸드아웃</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>&#9876; 사건 타임라인</h1>
+    <p class="subtitle">시나리오 진행 기록</p>
+  </header>
+
+  <main class="timeline-container">
+    <div class="timeline" id="timeline">
+      <div class="loading">불러오는 중...</div>
+    </div>
+  </main>
+
+  <section class="handout-section">
+    <div class="handout-section-header">
+      <h2 class="handout-section-title">📄 핸드아웃</h2>
+      <button class="btn-new-handout" id="btnNewHandout">＋ 새 핸드아웃</button>
+    </div>
+    <div class="handout-grid" id="handoutGrid">
+      <div class="loading">불러오는 중...</div>
+    </div>
+  </section>
+
+  <!-- 핸드아웃 모달 -->
+  <div class="modal-overlay" id="modalOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <button class="modal-close" id="modalClose" aria-label="닫기">&times;</button>
+      <div class="modal-content" id="modalContent"></div>
+    </div>
+  </div>
+
+  <script src="timeline.js"></script>
+</body>
+</html>
